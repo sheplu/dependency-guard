@@ -8,6 +8,8 @@ export type UpdateType = 'up-to-date' | 'minor' | 'major';
 
 export type OutputFormat = 'table' | 'json' | 'markdown';
 
+export type FailOnLevel = 'major' | 'minor' | 'any';
+
 export interface VersionInfo {
   version: string;
   publishedAt: string | null;
@@ -54,6 +56,8 @@ export interface CliOptions {
   cacheTtlMinutes: number;
   ignoredScopes: string[];
   quiet: boolean;
+  failOnLevel: FailOnLevel | null;
+  maxAgeDays: number | null;
 }
 
 export interface RegistryPackageMetadata {

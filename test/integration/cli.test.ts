@@ -217,6 +217,95 @@ describe('CLI integration', () => {
     assert.match(result.stderr, /Invalid --cache-ttl: abc/);
   });
 
+  it('--fail-on major exits 2 with full report and reason on stderr', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--fail-on',
+        'major',
+        '--no-cache',
+      ],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 2);
+    // Full report still printed to stdout
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.summary.total, 3);
+    // Reason on stderr
+    assert.match(result.stderr, /Policy check failed/);
+    assert.match(result.stderr, /--fail-on major/);
+    assert.match(result.stderr, /express@4\.18\.2/);
+  });
+
+  it('--fail-on minor catches both minor and major upgrades', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--fail-on',
+        'minor',
+        '--no-cache',
+      ],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, /express@4\.18\.2/);
+    assert.match(result.stderr, /typescript@5\.2\.2/);
+  });
+
+  it('--max-age fails when an installed version is older than the threshold', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--max-age',
+        '30',
+        '--no-cache',
+      ],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, /--max-age 30/);
+    // lodash is from 2024-01-01, well over 30 days old
+    assert.match(result.stderr, /lodash/);
+  });
+
+  it('exits 0 when --fail-on threshold is not exceeded', async () => {
+    // Use an isolated project where every dep is up-to-date
+    const cleanProject = await createTmpProject({
+      packageJson: {
+        name: 'clean',
+        version: '1.0.0',
+        dependencies: { lodash: '4.17.21' },
+      },
+      installed: { lodash: '4.17.21' },
+    });
+    try {
+      const result = await runCli(
+        [
+          '--path',
+          cleanProject.packageJsonPath,
+          '--format',
+          'json',
+          '--fail-on',
+          'major',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+    } finally {
+      await cleanProject.cleanup();
+    }
+  });
+
   describe('with --ignore-scope', () => {
     let privateProject: TmpProject;
 
