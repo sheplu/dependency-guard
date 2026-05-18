@@ -29,6 +29,7 @@ describe('formatTable', () => {
           updateType: 'up-to-date',
         },
       ],
+      skipped: [],
     };
 
     const out = formatTable(report, { color: false });
@@ -79,6 +80,7 @@ describe('formatTable', () => {
           updateType: 'up-to-date',
         },
       ],
+      skipped: [],
     };
     const out = formatTable(report, { color: true });
     // eslint-disable-next-line no-control-regex
@@ -93,6 +95,7 @@ describe('formatTable', () => {
     const report: AnalysisReport = {
       summary: { total: 0, upToDate: 0, minorUpdates: 0, majorUpdates: 0 },
       dependencies: [],
+      skipped: [],
     };
     const out = formatTable(report);
     assert.match(out, /Summary:/);

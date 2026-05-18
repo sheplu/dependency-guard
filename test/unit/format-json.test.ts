@@ -19,6 +19,7 @@ describe('formatJson', () => {
           updateType: 'major',
         },
       ],
+      skipped: [],
     };
 
     const out = JSON.parse(formatJson(report));

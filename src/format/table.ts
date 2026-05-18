@@ -1,17 +1,8 @@
 import { formatAge } from '../age.ts';
 import type { AnalysisReport, DependencyAnalysis, UpdateType } from '../types.ts';
-import { statusLabel, typeShort } from './shared.ts';
+import { ANSI, type AnsiColor, colorize, statusLabel, typeShort } from './shared.ts';
 
 const HEADERS = ['Package', 'Type', 'Current', 'Minor', 'Major', 'Age', 'Latest Age', 'Status'] as const;
-
-const ESC = '\x1b';
-const COLORS = {
-  reset: `${ESC}[0m`,
-  green: `${ESC}[32m`,
-  yellow: `${ESC}[33m`,
-  red: `${ESC}[31m`,
-  dim: `${ESC}[2m`,
-} as const;
 
 export interface FormatTableOptions {
   color?: boolean;
@@ -28,9 +19,9 @@ export function formatTable(report: AnalysisReport, opts: FormatTableOptions = {
   const lines: string[] = [];
   lines.push('Summary:');
   lines.push(`  Total: ${report.summary.total}`);
-  lines.push(`  ${color('✓ Up to date', 'green', useColor)}: ${report.summary.upToDate}`);
-  lines.push(`  ${color('↑ Minor updates', 'yellow', useColor)}: ${report.summary.minorUpdates}`);
-  lines.push(`  ${color('⬆ Major updates', 'red', useColor)}: ${report.summary.majorUpdates}`);
+  lines.push(`  ${colorize('✓ Up to date', 'green', useColor)}: ${report.summary.upToDate}`);
+  lines.push(`  ${colorize('↑ Minor updates', 'yellow', useColor)}: ${report.summary.minorUpdates}`);
+  lines.push(`  ${colorize('⬆ Major updates', 'red', useColor)}: ${report.summary.majorUpdates}`);
   lines.push('');
 
   lines.push(border(widths, '┌', '┬', '┐'));
@@ -58,18 +49,13 @@ function buildRow(dep: DependencyAnalysis): string[] {
   ];
 }
 
-function statusColor(updateType: UpdateType): keyof typeof COLORS {
+function statusColor(updateType: UpdateType): AnsiColor {
   if (updateType === 'major') return 'red';
   if (updateType === 'minor') return 'yellow';
   return 'green';
 }
 
-function color(text: string, name: keyof typeof COLORS, on: boolean): string {
-  if (!on) return text;
-  return `${COLORS[name]}${text}${COLORS.reset}`;
-}
-
-function rowLine(cells: string[], widths: number[], statusName: keyof typeof COLORS | null = null): string {
+function rowLine(cells: string[], widths: number[], statusName: AnsiColor | null = null): string {
   const padded = cells.map((c, i) => ' ' + pad(c, widths[i]) + ' ');
   if (statusName) {
     padded[padded.length - 1] = ' ' + colorPad(cells[cells.length - 1], widths[widths.length - 1], statusName) + ' ';
@@ -77,8 +63,8 @@ function rowLine(cells: string[], widths: number[], statusName: keyof typeof COL
   return '│' + padded.join('│') + '│';
 }
 
-function colorPad(text: string, width: number, name: keyof typeof COLORS): string {
-  return COLORS[name] + pad(text, width) + COLORS.reset;
+function colorPad(text: string, width: number, name: AnsiColor): string {
+  return ANSI[name] + pad(text, width) + ANSI.reset;
 }
 
 function pad(text: string, width: number): string {

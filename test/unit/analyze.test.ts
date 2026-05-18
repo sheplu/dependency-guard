@@ -42,6 +42,7 @@ describe('runAnalysis', () => {
             peer: false,
             optional: false,
             cache: false,
+            ignoredScopes: [],
           },
           { registry, cache },
         ),
@@ -74,6 +75,7 @@ describe('runAnalysis', () => {
             peer: false,
             optional: false,
             cache: false,
+            ignoredScopes: [],
           },
           { registry, cache },
         ),
@@ -113,6 +115,7 @@ describe('runAnalysis', () => {
         peer: false,
         optional: false,
         cache: false,
+        ignoredScopes: [],
       },
       { registry, cache },
     );
@@ -124,5 +127,125 @@ describe('runAnalysis', () => {
     assert.equal(dep.latestMajor, null);
     // ageInDays and latestAgeInDays mirror each other when no stable upgrade exists
     assert.equal(dep.ageInDays, dep.latestAgeInDays);
+  });
+
+  it('skips packages matching --ignore-scope and reports them in skipped', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { '@private/foo': '1.0.0', '@private/bar': '2.0.0' },
+        devDependencies: { '@other/baz': '3.0.0' },
+      }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    let fetchCalls = 0;
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: ((_url: string) => {
+        fetchCalls++;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ name: '@other/baz', versions: { '3.0.0': {} }, time: { '3.0.0': '2026-01-01T00:00:00Z' } }),
+            { headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }) as unknown as typeof fetch,
+    });
+
+    const report = await runAnalysis(
+      {
+        path: join(dir, 'package.json'),
+        format: 'json',
+        prod: false,
+        dev: false,
+        peer: false,
+        optional: false,
+        cache: false,
+        ignoredScopes: ['@private'],
+      },
+      { registry, cache },
+    );
+
+    assert.equal(fetchCalls, 1, 'only the non-ignored package should hit the registry');
+    assert.equal(report.summary.total, 1);
+    assert.equal(report.dependencies.length, 1);
+    assert.equal(report.dependencies[0].name, '@other/baz');
+    assert.deepEqual(report.skipped, [
+      { name: '@private/bar', type: 'dependencies', scope: '@private' },
+      { name: '@private/foo', type: 'dependencies', scope: '@private' },
+    ]);
+  });
+
+  it('tags each skipped entry with the matching scope, not the first', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { '@a/x': '1.0.0', '@b/y': '1.0.0' },
+      }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: (() => Promise.reject(new Error('should not be called'))) as typeof fetch,
+    });
+
+    const report = await runAnalysis(
+      {
+        path: join(dir, 'package.json'),
+        format: 'json',
+        prod: false,
+        dev: false,
+        peer: false,
+        optional: false,
+        cache: false,
+        ignoredScopes: ['@a', '@b'],
+      },
+      { registry, cache },
+    );
+
+    const byName = new Map(report.skipped.map((s) => [s.name, s.scope]));
+    assert.equal(byName.get('@a/x'), '@a');
+    assert.equal(byName.get('@b/y'), '@b');
+  });
+
+  it('returns empty skipped when no scopes ignored', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { lodash: '4.17.21' } }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: (() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({ name: 'lodash', versions: { '4.17.21': {} }, time: { '4.17.21': '2024-01-01T00:00:00Z' } }),
+            { headers: { 'content-type': 'application/json' } },
+          ),
+        )) as typeof fetch,
+    });
+
+    const report = await runAnalysis(
+      {
+        path: join(dir, 'package.json'),
+        format: 'json',
+        prod: false,
+        dev: false,
+        peer: false,
+        optional: false,
+        cache: false,
+        ignoredScopes: [],
+      },
+      { registry, cache },
+    );
+
+    assert.deepEqual(report.skipped, []);
+    assert.equal(report.dependencies.length, 1);
   });
 });
