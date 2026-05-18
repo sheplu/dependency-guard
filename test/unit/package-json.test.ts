@@ -41,6 +41,24 @@ describe('collectDependencies', () => {
     assert.deepEqual(names, ['express', 'lodash', 'react', 'typescript']);
   });
 
+  it('groups by dependency type, alphabetical within each group', async () => {
+    const entries = await collectDependencies(join(dir, 'package.json'), {
+      prod: false,
+      dev: false,
+      peer: false,
+      optional: false,
+    });
+    assert.deepEqual(
+      entries.map((e) => [e.type, e.name]),
+      [
+        ['dependencies', 'express'],
+        ['dependencies', 'lodash'],
+        ['devDependencies', 'typescript'],
+        ['peerDependencies', 'react'],
+      ],
+    );
+  });
+
   it('filters to prod only when --prod is set', async () => {
     const entries = await collectDependencies(join(dir, 'package.json'), {
       prod: true,
