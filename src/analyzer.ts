@@ -23,6 +23,7 @@ export function analyzeDependency({ entry, metadata, now }: AnalyzeArgs): Depend
 
   const current = parse(entry.installedVersion ?? '') ?? parse('0.0.0')!;
 
+  const deprecated = metadata.deprecations[current.raw] ?? null;
   const latestMajorVersion = maxVersion(stableVersions);
   if (!latestMajorVersion) {
     const currentAge = ageInDays(metadata.time[current.raw] ?? null, now);
@@ -35,6 +36,7 @@ export function analyzeDependency({ entry, metadata, now }: AnalyzeArgs): Depend
       ageInDays: currentAge,
       latestAgeInDays: currentAge,
       updateType: 'up-to-date',
+      deprecated,
     };
   }
 
@@ -54,6 +56,7 @@ export function analyzeDependency({ entry, metadata, now }: AnalyzeArgs): Depend
     ageInDays: ageInDays(metadata.time[current.raw] ?? null, now),
     latestAgeInDays: ageInDays(metadata.time[latestMajorVersion.raw] ?? null, now),
     updateType,
+    deprecated,
   };
 }
 

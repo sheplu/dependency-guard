@@ -17,6 +17,7 @@ describe('formatJson', () => {
           ageInDays: 245,
           latestAgeInDays: 199,
           updateType: 'major',
+          deprecated: null,
         },
       ],
       skipped: [],

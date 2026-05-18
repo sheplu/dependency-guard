@@ -78,6 +78,11 @@ describe('cli.run', () => {
     assert.match(result.stderr, /Invalid --fail-on/);
   });
 
+  it('lists "deprecated" as an accepted --fail-on level in help text', async () => {
+    const result = await run(['--help']);
+    assert.match(result.stdout, /major \| minor \| any \| deprecated/);
+  });
+
   it('rejects --max-age with non-integer value', async () => {
     const result = await run(['--max-age', 'abc']);
     assert.equal(result.exitCode, 1);

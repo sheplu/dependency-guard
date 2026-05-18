@@ -1,4 +1,4 @@
-import type { AnalysisReport, FailOnLevel } from './types.ts';
+import type { AnalysisReport, FailOnLevel, UpdateType } from './types.ts';
 
 export interface PolicyOptions {
   failOnLevel: FailOnLevel | null;
@@ -17,14 +17,24 @@ export function evaluatePolicy(
   const reasons: string[] = [];
 
   if (options.failOnLevel !== null) {
-    const offenders = report.dependencies.filter((d) =>
-      violatesLevel(d.updateType, options.failOnLevel!),
-    );
-    if (offenders.length > 0) {
-      const names = offenders.map((d) => `${d.name}@${d.current.version}`).join(', ');
-      reasons.push(
-        `--fail-on ${options.failOnLevel}: ${offenders.length} dependenc${offenders.length === 1 ? 'y' : 'ies'} need upgrade (${names})`,
+    if (options.failOnLevel === 'deprecated') {
+      const offenders = report.dependencies.filter((d) => d.deprecated !== null);
+      if (offenders.length > 0) {
+        const names = offenders.map((d) => `${d.name}@${d.current.version}`).join(', ');
+        reasons.push(
+          `--fail-on deprecated: ${offenders.length} installed version${offenders.length === 1 ? ' is' : 's are'} deprecated (${names})`,
+        );
+      }
+    } else {
+      const offenders = report.dependencies.filter((d) =>
+        violatesLevel(d.updateType, options.failOnLevel as Exclude<FailOnLevel, 'deprecated'>),
       );
+      if (offenders.length > 0) {
+        const names = offenders.map((d) => `${d.name}@${d.current.version}`).join(', ');
+        reasons.push(
+          `--fail-on ${options.failOnLevel}: ${offenders.length} dependenc${offenders.length === 1 ? 'y' : 'ies'} need upgrade (${names})`,
+        );
+      }
     }
   }
 
@@ -43,7 +53,7 @@ export function evaluatePolicy(
   return { passed: reasons.length === 0, reasons };
 }
 
-function violatesLevel(updateType: AnalysisReport['dependencies'][number]['updateType'], level: FailOnLevel): boolean {
+function violatesLevel(updateType: UpdateType, level: Exclude<FailOnLevel, 'deprecated'>): boolean {
   if (level === 'major') return updateType === 'major';
   // 'minor' and 'any' both fail on anything that isn't up-to-date
   return updateType === 'major' || updateType === 'minor';

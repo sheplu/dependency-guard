@@ -113,6 +113,28 @@ describe('RegistryClient', () => {
     assert.deepEqual(meta.time, {});
   });
 
+  it('extracts non-empty deprecated strings into the deprecations map', async () => {
+    const client = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      fetchImpl: (() =>
+        Promise.resolve(
+          jsonResponse({
+            name: 'demo',
+            versions: {
+              '1.0.0': {},
+              '2.0.0': { deprecated: 'use newer' },
+              '2.1.0': { deprecated: '' }, // empty: ignored
+              '2.2.0': { deprecated: 42 },  // non-string: ignored
+            },
+            time: {},
+          }),
+        )) as typeof fetch,
+    });
+
+    const meta = await client.getPackage('demo');
+    assert.deepEqual(meta.deprecations, { '2.0.0': 'use newer' });
+  });
+
   it('parses registry response into metadata shape', async () => {
     const client = new RegistryClient({
       baseUrl: 'http://example.invalid',

@@ -27,7 +27,7 @@ Options:
       --cache-clear          Clear the registry cache directory and exit
       --cache-ttl <minutes>  Cache TTL in minutes (default: 60)
       --fail-on <level>      Exit 2 if any dependency needs an upgrade at this level
-                             (major | minor | any)
+                             (major | minor | any | deprecated)
       --max-age <days>       Exit 2 if any installed version is older than N days
       --sort <field>         Sort by age, status, or name (default: type then name)
   -h, --help                 Show help
@@ -131,7 +131,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
       return {
         exitCode: 1,
         stdout: '',
-        stderr: `Invalid --fail-on: ${failOnRaw} (expected one of: major, minor, any)\n`,
+        stderr: `Invalid --fail-on: ${failOnRaw} (expected one of: major, minor, any, deprecated)\n`,
       };
     }
     failOnLevel = failOnRaw;
@@ -229,7 +229,7 @@ function flattenCsv(values: ReadonlyArray<string>): string[] {
 }
 
 function isFailOnLevel(value: string): value is FailOnLevel {
-  return value === 'major' || value === 'minor' || value === 'any';
+  return value === 'major' || value === 'minor' || value === 'any' || value === 'deprecated';
 }
 
 function isSortField(value: string): value is SortField {

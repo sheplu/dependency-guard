@@ -25,8 +25,9 @@ export function formatMarkdown(report: AnalysisReport, opts: FormatMarkdownOptio
 }
 
 function row(dep: DependencyAnalysis): string {
+  const name = dep.deprecated !== null ? `${dep.name} ⚠` : dep.name;
   return [
-    dep.name,
+    name,
     typeShort(dep.type),
     dep.current.version,
     dep.latestMinor?.version ?? '-',

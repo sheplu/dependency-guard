@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 
 export interface MockPackage {
   name: string;
-  versions: Record<string, { version: string }>;
+  versions: Record<string, { version: string; deprecated?: string }>;
   time: Record<string, string>;
 }
 

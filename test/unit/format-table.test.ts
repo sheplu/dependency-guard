@@ -17,6 +17,7 @@ describe('formatTable', () => {
           ageInDays: 245,
           latestAgeInDays: 199,
           updateType: 'major',
+          deprecated: null,
         },
         {
           name: 'lodash',
@@ -27,6 +28,7 @@ describe('formatTable', () => {
           ageInDays: 730,
           latestAgeInDays: 730,
           updateType: 'up-to-date',
+          deprecated: null,
         },
       ],
       skipped: [],
@@ -58,6 +60,7 @@ describe('formatTable', () => {
           ageInDays: 245,
           latestAgeInDays: 199,
           updateType: 'major',
+          deprecated: null,
         },
         {
           name: 'b-minor',
@@ -68,6 +71,7 @@ describe('formatTable', () => {
           ageInDays: 120,
           latestAgeInDays: 75,
           updateType: 'minor',
+          deprecated: null,
         },
         {
           name: 'c-uptodate',
@@ -78,6 +82,7 @@ describe('formatTable', () => {
           ageInDays: 730,
           latestAgeInDays: 730,
           updateType: 'up-to-date',
+          deprecated: null,
         },
       ],
       skipped: [],
@@ -104,6 +109,7 @@ describe('formatTable', () => {
           ageInDays: 730,
           latestAgeInDays: 730,
           updateType: 'up-to-date',
+          deprecated: null,
         },
       ],
       skipped: [],
@@ -112,6 +118,28 @@ describe('formatTable', () => {
     assert.doesNotMatch(out, /Summary:/);
     assert.match(out, /│ Package /);
     assert.match(out, /lodash/);
+  });
+
+  it('appends a ⚠ marker after deprecated package names', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 1, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'request',
+          type: 'dependencies',
+          current: { version: '2.88.2', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 1500,
+          latestAgeInDays: 1500,
+          updateType: 'up-to-date',
+          deprecated: 'request has been deprecated',
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatTable(report, { color: false });
+    assert.match(out, /request ⚠/);
   });
 
   it('defaults color to TTY detection when option is omitted', () => {
