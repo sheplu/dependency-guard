@@ -63,6 +63,7 @@ export interface CliOptions {
   failOnLevel: FailOnLevel | null;
   maxAgeDays: number | null;
   sortBy: SortField | null;
+  registryUrl: string | null;
 }
 
 export interface RegistryPackageMetadata {

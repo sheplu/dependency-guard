@@ -83,6 +83,24 @@ describe('cli.run', () => {
     assert.match(result.stdout, /major \| minor \| any \| deprecated/);
   });
 
+  it('lists --registry in help text', async () => {
+    const result = await run(['--help']);
+    assert.match(result.stdout, /--registry <url>/);
+    assert.match(result.stdout, /DEPENDENCY_GUARD_REGISTRY_URL/);
+  });
+
+  it('rejects --registry without http(s) scheme', async () => {
+    const result = await run(['--registry', 'registry.example.com']);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Invalid --registry/);
+  });
+
+  it('rejects --registry with a malformed URL', async () => {
+    const result = await run(['--registry', 'http://']);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Invalid --registry/);
+  });
+
   it('rejects --max-age with non-integer value', async () => {
     const result = await run(['--max-age', 'abc']);
     assert.equal(result.exitCode, 1);

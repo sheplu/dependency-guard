@@ -217,6 +217,89 @@ describe('CLI integration', () => {
     assert.match(result.stderr, /Invalid --cache-ttl: abc/);
   });
 
+  it('--registry routes traffic to the given URL (no env var needed)', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--registry',
+        registry.url,
+        '--no-cache',
+      ],
+      {}, // intentionally NO DEPENDENCY_GUARD_REGISTRY_URL
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.summary.total, 3);
+  });
+
+  it('--registry takes precedence over DEPENDENCY_GUARD_REGISTRY_URL', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--registry',
+        registry.url,
+        '--no-cache',
+      ],
+      // env points at a bogus URL; flag should win
+      { DEPENDENCY_GUARD_REGISTRY_URL: 'http://127.0.0.1:1' },
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.summary.total, 3);
+  });
+
+  it('--registry rejects non-http URLs with exit 1', async () => {
+    const result = await runCli(['--registry', 'registry.example.com'], {});
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Invalid --registry/);
+  });
+
+  it('--registry rejects URLs with an empty hostname', async () => {
+    const result = await runCli(['--registry', 'http://'], {});
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Invalid --registry/);
+  });
+
+  it('--registry warns on plain HTTP but still runs', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--registry',
+        registry.url, // mock registry runs on http://127.0.0.1:<port>
+        '--no-cache',
+      ],
+      {},
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.match(result.stderr, /Warning:.*plain HTTP/);
+    assert.match(result.stderr, new RegExp(registry.url.replace(/[/.]/g, '\\$&')));
+    // stdout still parses as valid JSON
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.summary.total, 3);
+  });
+
+  it('--registry on HTTPS does NOT emit the plain-HTTP warning', async () => {
+    // We can't reach a real HTTPS mock easily; use the validation path:
+    // a valid-looking https:// URL passes parsing, then the call fails — but
+    // crucially the warning should be absent from stderr regardless.
+    const result = await runCli(
+      ['--registry', 'https://127.0.0.1:1', '--no-cache', '--format', 'json'],
+      {},
+    );
+    // We don't assert exitCode (the unreachable host will fail); only that
+    // the HTTP warning never appears for https URLs.
+    assert.doesNotMatch(result.stderr, /plain HTTP/);
+  });
+
   it('--fail-on major exits 2 with full report and reason on stderr', async () => {
     const result = await runCli(
       [
