@@ -8,7 +8,7 @@ export type UpdateType = 'up-to-date' | 'minor' | 'major';
 
 export type OutputFormat = 'table' | 'json' | 'markdown';
 
-export type FailOnLevel = 'major' | 'minor' | 'any';
+export type FailOnLevel = 'major' | 'minor' | 'any' | 'deprecated';
 
 export type SortField = 'age' | 'status' | 'name';
 
@@ -26,6 +26,7 @@ export interface DependencyAnalysis {
   ageInDays: number | null;
   latestAgeInDays: number | null;
   updateType: UpdateType;
+  deprecated: string | null;
 }
 
 export interface AnalysisSummary {
@@ -68,4 +69,5 @@ export interface RegistryPackageMetadata {
   name: string;
   versions: string[];
   time: Record<string, string>;
+  deprecations: Record<string, string>;
 }

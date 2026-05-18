@@ -13,6 +13,7 @@ function dep(overrides: Partial<DependencyAnalysis>): DependencyAnalysis {
     ageInDays: 30,
     latestAgeInDays: 30,
     updateType: 'up-to-date',
+    deprecated: null,
     ...overrides,
   };
 }
@@ -104,6 +105,41 @@ describe('evaluatePolicy', () => {
       const report = makeReport([dep({ ageInDays: 400 })]);
       const result = evaluatePolicy(report, { failOnLevel: null, maxAgeDays: 30 });
       assert.match(result.reasons[0], /1 dependency is/);
+    });
+  });
+
+  describe('--fail-on deprecated', () => {
+    it('passes when no installed version is deprecated', () => {
+      const report = makeReport([dep({ name: 'fresh', deprecated: null })]);
+      const result = evaluatePolicy(report, { failOnLevel: 'deprecated', maxAgeDays: null });
+      assert.equal(result.passed, true);
+    });
+
+    it('fails when one installed version is deprecated', () => {
+      const report = makeReport([
+        dep({ name: 'request', deprecated: 'use newer' }),
+        dep({ name: 'fresh', deprecated: null }),
+      ]);
+      const result = evaluatePolicy(report, { failOnLevel: 'deprecated', maxAgeDays: null });
+      assert.equal(result.passed, false);
+      assert.match(result.reasons[0], /--fail-on deprecated/);
+      assert.match(result.reasons[0], /request@1\.0\.0/);
+      assert.doesNotMatch(result.reasons[0], /fresh/);
+    });
+
+    it('uses singular phrasing for one deprecated offender', () => {
+      const report = makeReport([dep({ deprecated: 'use newer' })]);
+      const result = evaluatePolicy(report, { failOnLevel: 'deprecated', maxAgeDays: null });
+      assert.match(result.reasons[0], /1 installed version is/);
+    });
+
+    it('uses plural phrasing for multiple deprecated offenders', () => {
+      const report = makeReport([
+        dep({ name: 'a', deprecated: 'gone' }),
+        dep({ name: 'b', deprecated: 'gone too' }),
+      ]);
+      const result = evaluatePolicy(report, { failOnLevel: 'deprecated', maxAgeDays: null });
+      assert.match(result.reasons[0], /2 installed versions are/);
     });
   });
 

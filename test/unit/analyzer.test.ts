@@ -20,6 +20,7 @@ function makeMetadata(versions: Record<string, string>): RegistryPackageMetadata
     name: 'demo',
     versions: Object.keys(versions),
     time: versions,
+    deprecations: {},
   };
 }
 
@@ -146,6 +147,34 @@ describe('analyzeDependency', () => {
     assert.equal(result.latestAgeInDays, 30);
   });
 
+  it('exposes deprecation message for the installed version', () => {
+    const result = analyzeDependency({
+      entry: makeEntry('1.0.0'),
+      metadata: {
+        name: 'demo',
+        versions: ['1.0.0'],
+        time: { '1.0.0': '2026-01-01T00:00:00Z' },
+        deprecations: { '1.0.0': 'use newer' },
+      },
+      now: NOW,
+    });
+    assert.equal(result.deprecated, 'use newer');
+  });
+
+  it('returns deprecated: null when no deprecation entry exists', () => {
+    const result = analyzeDependency({
+      entry: makeEntry('1.0.0'),
+      metadata: {
+        name: 'demo',
+        versions: ['1.0.0'],
+        time: { '1.0.0': '2026-01-01T00:00:00Z' },
+        deprecations: {},
+      },
+      now: NOW,
+    });
+    assert.equal(result.deprecated, null);
+  });
+
   it('returns null latestAgeInDays when registry has no time entry for the latest', () => {
     const result = analyzeDependency({
       entry: makeEntry('1.0.0'),
@@ -153,6 +182,7 @@ describe('analyzeDependency', () => {
         name: 'demo',
         versions: ['1.0.0', '2.0.0'],
         time: { '1.0.0': '2026-01-01T00:00:00Z' },
+        deprecations: {},
       },
       now: NOW,
     });

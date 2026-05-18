@@ -474,6 +474,73 @@ describe('CLI integration', () => {
     assert.equal(report.dependencies.length, 0);
   });
 
+  describe('with deprecated packages', () => {
+    let deprProject: TmpProject;
+    let deprRegistry: MockRegistry;
+
+    beforeEach(async () => {
+      deprRegistry = await startMockRegistry([
+        {
+          name: 'request',
+          versions: {
+            '2.88.2': { version: '2.88.2', deprecated: 'request has been deprecated' },
+          },
+          time: { '2.88.2': '2020-02-12T00:00:00Z' },
+        },
+      ]);
+      deprProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-depr',
+          version: '1.0.0',
+          dependencies: { request: '^2.88.0' },
+        },
+        installed: { request: '2.88.2' },
+      });
+    });
+
+    afterEach(async () => {
+      await deprRegistry.close();
+      await deprProject.cleanup();
+    });
+
+    it('surfaces deprecation in JSON output', async () => {
+      const result = await runCli(
+        ['--path', deprProject.packageJsonPath, '--format', 'json', '--no-cache'],
+        { DEPENDENCY_GUARD_REGISTRY_URL: deprRegistry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const report = JSON.parse(result.stdout);
+      assert.equal(report.dependencies[0].deprecated, 'request has been deprecated');
+    });
+
+    it('renders ⚠ next to deprecated packages in table output', async () => {
+      const result = await runCli(
+        ['--path', deprProject.packageJsonPath, '--format', 'table', '--no-cache'],
+        { DEPENDENCY_GUARD_REGISTRY_URL: deprRegistry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /request ⚠/);
+    });
+
+    it('--fail-on deprecated exits 2 when an installed version is deprecated', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          deprProject.packageJsonPath,
+          '--format',
+          'json',
+          '--fail-on',
+          'deprecated',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: deprRegistry.url },
+      );
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /--fail-on deprecated/);
+      assert.match(result.stderr, /request@2\.88\.2/);
+    });
+  });
+
   describe('with --ignore-scope', () => {
     let privateProject: TmpProject;
 

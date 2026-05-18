@@ -12,7 +12,7 @@ export interface FormatTableOptions {
 export function formatTable(report: AnalysisReport, opts: FormatTableOptions = {}): string {
   const useColor = opts.color ?? Boolean(process.stdout.isTTY);
 
-  const rows = report.dependencies.map((d) => buildRow(d));
+  const rows = report.dependencies.map((d) => buildRow(d, useColor));
   const widths = HEADERS.map((h, i) =>
     Math.max(h.length, ...rows.map((r) => visualLength(r[i]))),
   );
@@ -39,9 +39,12 @@ export function formatTable(report: AnalysisReport, opts: FormatTableOptions = {
   return lines.join('\n');
 }
 
-function buildRow(dep: DependencyAnalysis): string[] {
+function buildRow(dep: DependencyAnalysis, useColor: boolean): string[] {
+  const name = dep.deprecated !== null
+    ? `${dep.name} ${colorize('⚠', 'yellow', useColor)}`
+    : dep.name;
   return [
-    dep.name,
+    name,
     typeShort(dep.type),
     dep.current.version,
     dep.latestMinor?.version ?? '-',

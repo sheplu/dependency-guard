@@ -36,13 +36,21 @@ export class RegistryClient {
     }
     const body = (await res.json()) as {
       name?: string;
-      versions?: Record<string, unknown>;
+      versions?: Record<string, { deprecated?: unknown } | undefined>;
       time?: Record<string, string>;
     };
+    const versions = body.versions ?? {};
+    const deprecations: Record<string, string> = {};
+    for (const [version, info] of Object.entries(versions)) {
+      if (info && typeof info.deprecated === 'string' && info.deprecated.length > 0) {
+        deprecations[version] = info.deprecated;
+      }
+    }
     const meta: RegistryPackageMetadata = {
       name: body.name ?? name,
-      versions: Object.keys(body.versions ?? {}),
+      versions: Object.keys(versions),
       time: body.time ?? {},
+      deprecations,
     };
     await this.cache?.set(name, meta);
     return meta;

@@ -17,6 +17,7 @@ describe('formatMarkdown', () => {
           ageInDays: 245,
           latestAgeInDays: 199,
           updateType: 'major',
+          deprecated: null,
         },
       ],
       skipped: [],
@@ -40,12 +41,35 @@ describe('formatMarkdown', () => {
           ageInDays: 730,
           latestAgeInDays: 730,
           updateType: 'up-to-date',
+          deprecated: null,
         },
       ],
       skipped: [],
     };
     const out = formatMarkdown(report);
     assert.match(out, /\| lodash \| prod \| 4\.17\.21 \| - \| - \| 2y \| 2y \| ✓ Up to date \|/);
+  });
+
+  it('appends a ⚠ marker after deprecated package names', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 1, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'request',
+          type: 'dependencies',
+          current: { version: '2.88.2', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 1500,
+          latestAgeInDays: 1500,
+          updateType: 'up-to-date',
+          deprecated: 'request has been deprecated',
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatMarkdown(report);
+    assert.match(out, /\| request ⚠ \|/);
   });
 
   it('omits the heading and bullet list when quiet: true', () => {
@@ -61,6 +85,7 @@ describe('formatMarkdown', () => {
           ageInDays: 730,
           latestAgeInDays: 730,
           updateType: 'up-to-date',
+          deprecated: null,
         },
       ],
       skipped: [],
