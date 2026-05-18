@@ -798,7 +798,286 @@ describe('CLI integration', () => {
         { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
       );
       assert.equal(result.exitCode, 0, result.stderr);
-      assert.match(result.stderr, /Warning: --include-transitive set, but no transitive dependencies/);
+      assert.match(result.stderr, /Warning: --include-transitive set, but no lockfile was found/);
+      assert.match(result.stderr, /package-lock\.json or yarn\.lock/);
+    });
+  });
+
+  describe('with yarn.lock', () => {
+    let yarnProject: TmpProject;
+
+    beforeEach(async () => {
+      yarnProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-yarn',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        yarnLock: `__metadata:
+  version: 8
+
+"express@npm:^4.18.0":
+  version: 4.18.2
+  resolution: "express@npm:4.18.2"
+  dependencies:
+    lodash: "npm:4.17.21"
+
+"lodash@npm:4.17.21":
+  version: 4.17.21
+  resolution: "lodash@npm:4.17.21"
+`,
+      });
+    });
+
+    afterEach(async () => {
+      await yarnProject.cleanup();
+    });
+
+    it('--include-transitive walks yarn.lock when no package-lock.json is present', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          yarnProject.packageJsonPath,
+          '--format',
+          'json',
+          '--include-transitive',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const report = JSON.parse(result.stdout);
+      const names = report.dependencies.map((d: { name: string }) => d.name).toSorted();
+      assert.deepEqual(names, ['express', 'lodash']);
+      const lodash = report.dependencies.find((d: { name: string }) => d.name === 'lodash');
+      assert.equal(lodash.transitive, true);
+    });
+
+    it('emits a conflict warning when both package-lock.json and yarn.lock exist (npm wins)', async () => {
+      const bothProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-both',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        // npm lock says express has lodash as a child
+        packageLock: {
+          lockfileVersion: 3,
+          packages: {
+            'node_modules/express': {
+              version: '4.18.2',
+              dependencies: { lodash: '4.17.21' },
+            },
+            'node_modules/lodash': { version: '4.17.21' },
+          },
+        },
+        // yarn lock would say something different — but should be ignored
+        yarnLock: `__metadata:
+  version: 8
+
+"express@npm:^4.18.0":
+  version: 4.18.2
+  resolution: "express@npm:4.18.2"
+  dependencies:
+    typescript: "npm:5.0.0"
+
+"typescript@npm:5.0.0":
+  version: 5.0.0
+  resolution: "typescript@npm:5.0.0"
+`,
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            bothProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(
+          result.stderr,
+          /Warning: both package-lock\.json and yarn\.lock found; using package-lock\.json\./,
+        );
+        const report = JSON.parse(result.stdout);
+        const names = report.dependencies.map((d: { name: string }) => d.name).toSorted();
+        // npm lockfile content (express + lodash), NOT yarn (which would have typescript)
+        assert.deepEqual(names, ['express', 'lodash']);
+      } finally {
+        await bothProject.cleanup();
+      }
+    });
+
+    it('renders ↳ prefix for transitives sourced from yarn.lock (table format)', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          yarnProject.packageJsonPath,
+          '--format',
+          'table',
+          '--include-transitive',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /↳ lodash/);
+    });
+
+    it('renders ↳ prefix for transitives in markdown format', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          yarnProject.packageJsonPath,
+          '--format',
+          'markdown',
+          '--include-transitive',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /\| ↳ lodash \|/);
+    });
+
+    it('falls back gracefully when yarn.lock is malformed (treated as no lockfile)', async () => {
+      const malformedProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-malformed',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        yarnLock: 'this is not a valid yarn.lock\n',
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            malformedProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        // Only the direct dep; no crash from the parser
+        assert.equal(report.dependencies.length, 1);
+        assert.equal(report.dependencies[0].name, 'express');
+      } finally {
+        await malformedProject.cleanup();
+      }
+    });
+  });
+
+  describe('with --include-transitive composed with other flags', () => {
+    let composedProject: TmpProject;
+
+    beforeEach(async () => {
+      composedProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-composed',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+          devDependencies: { typescript: '^5.2.0' },
+        },
+        installed: { express: '4.18.2', typescript: '5.2.2' },
+        packageLock: {
+          lockfileVersion: 3,
+          packages: {
+            'node_modules/express': {
+              version: '4.18.2',
+              dependencies: { '@private/inner': '1.0.0' },
+            },
+            'node_modules/typescript': {
+              version: '5.2.2',
+              dependencies: { lodash: '4.17.21' },
+            },
+            'node_modules/@private/inner': { version: '1.0.0' },
+            'node_modules/lodash': { version: '4.17.21' },
+          },
+        },
+      });
+    });
+
+    afterEach(async () => {
+      await composedProject.cleanup();
+    });
+
+    it('--include-transitive + --ignore-scope filters private transitives', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          composedProject.packageJsonPath,
+          '--format',
+          'json',
+          '--include-transitive',
+          '--ignore-scope',
+          '@private',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const report = JSON.parse(result.stdout);
+      const names = report.dependencies.map((d: { name: string }) => d.name).toSorted();
+      // express, typescript, lodash — but NOT @private/inner
+      assert.deepEqual(names, ['express', 'lodash', 'typescript']);
+      assert.equal(report.skipped.length, 1);
+      assert.equal(report.skipped[0].name, '@private/inner');
+    });
+
+    it('--include-transitive + --prod walks only prod transitives', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          composedProject.packageJsonPath,
+          '--format',
+          'json',
+          '--include-transitive',
+          '--prod',
+          '--ignore-scope',
+          '@private',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const report = JSON.parse(result.stdout);
+      const names = report.dependencies.map((d: { name: string }) => d.name).toSorted();
+      // typescript (devDep) is dropped, so its transitive lodash is dropped too
+      assert.deepEqual(names, ['express']);
+    });
+
+    it('--include-transitive + --fail-on major exits 2 when any transitive needs a major upgrade', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          composedProject.packageJsonPath,
+          '--format',
+          'json',
+          '--include-transitive',
+          '--ignore-scope',
+          '@private',
+          '--fail-on',
+          'major',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      // express is at 4.18.2, registry has 5.0.1 → major upgrade → exit 2
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /--fail-on major/);
+      assert.match(result.stderr, /express@4\.18\.2/);
     });
   });
 });
