@@ -1,0 +1,33 @@
+{
+  "name": "@sheplu/dependency-guard",
+  "version": "0.1.0",
+  "description": "Review and analyze your project's dependencies",
+  "type": "module",
+  "bin": {
+    "dependency-guard": "./index.ts"
+  },
+  "main": "./index.ts",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node index.ts",
+    "test": "node --test --test-reporter=spec 'test/**/*.test.ts'",
+    "test:unit": "node --test 'test/unit/**/*.test.ts'",
+    "test:integration": "node --test 'test/integration/**/*.test.ts'",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 'test/**/*.test.ts'",
+    "lint": "oxlint",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "oxlint": "^1.65.0",
+    "typescript": "^6.0.3"
+  }
+}
