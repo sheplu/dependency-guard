@@ -591,6 +591,7 @@ describe('runAnalysis --only filter', () => {
     prod: boolean;
     onlyNames: string[];
     ignoredScopes: string[];
+    includeTransitive: boolean;
   }> = {}) {
     return {
       path: join(dir, 'package.json'),
@@ -747,6 +748,38 @@ describe('runAnalysis --only filter', () => {
     assert.equal(report.dependencies[0].name, 'express');
     assert.equal(report.skipped.length, 1);
     assert.equal(report.skipped[0].name, '@private/inner');
+  });
+
+  it('--include-transitive falls back to yarn.lock when package-lock.json is absent', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { express: '^4.18.0' } }),
+    );
+    await writeFile(
+      join(dir, 'yarn.lock'),
+      `__metadata:
+  version: 8
+
+"express@npm:^4.18.0":
+  version: 4.18.2
+  resolution: "express@npm:4.18.2"
+  dependencies:
+    body-parser: "npm:1.20.0"
+
+"body-parser@npm:1.20.0":
+  version: 1.20.0
+  resolution: "body-parser@npm:1.20.0"
+`,
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ includeTransitive: true }),
+      { registry, cache },
+    );
+    const names = report.dependencies.map((d) => d.name).toSorted();
+    assert.deepEqual(names, ['body-parser', 'express']);
+    const bp = report.dependencies.find((d) => d.name === 'body-parser');
+    assert.equal(bp?.transitive, true);
   });
 
   it('--only express --include-transitive includes express subgraph', async () => {

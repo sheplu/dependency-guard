@@ -1,6 +1,8 @@
+import { dirname } from 'node:path';
 import { parseArgs } from 'node:util';
 import { runAnalysis } from './analyze.ts';
 import { Cache } from './cache.ts';
+import { detectLockfiles } from './lockfile.ts';
 import { formatJson } from './format/json.ts';
 import { formatMarkdown } from './format/markdown.ts';
 import { formatTable } from './format/table.ts';
@@ -214,6 +216,19 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     ) + '\n';
   }
 
+  let lockfilesPresent = { npm: false, yarn: false };
+  if (options.includeTransitive) {
+    lockfilesPresent = await detectLockfiles(dirname(options.path));
+    if (lockfilesPresent.npm && lockfilesPresent.yarn) {
+      const useColor = Boolean(process.stderr.isTTY);
+      extraStderr += colorize(
+        'Warning: both package-lock.json and yarn.lock found; using package-lock.json.',
+        'yellow',
+        useColor,
+      ) + '\n';
+    }
+  }
+
   try {
     const report = await runAnalysis(options);
     let out = render(report, options.format, { quiet: options.quiet });
@@ -234,10 +249,14 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
       }
     }
 
-    if (options.includeTransitive && report.dependencies.every((d) => !d.transitive)) {
+    if (
+      options.includeTransitive &&
+      !lockfilesPresent.npm &&
+      !lockfilesPresent.yarn
+    ) {
       const useColor = Boolean(process.stderr.isTTY);
       extraStderr += colorize(
-        'Warning: --include-transitive set, but no transitive dependencies were analyzed (missing package-lock.json or lockfile version <3?).',
+        'Warning: --include-transitive set, but no lockfile was found (expected package-lock.json or yarn.lock).',
         'yellow',
         useColor,
       ) + '\n';

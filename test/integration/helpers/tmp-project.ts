@@ -6,6 +6,7 @@ export interface TmpProjectOptions {
   packageJson: Record<string, unknown>;
   installed?: Record<string, string>;
   packageLock?: Record<string, unknown>;
+  yarnLock?: string;
 }
 
 export interface TmpProject {
@@ -33,6 +34,10 @@ export async function createTmpProject(options: TmpProjectOptions): Promise<TmpP
       join(dir, 'package-lock.json'),
       JSON.stringify(options.packageLock, null, 2),
     );
+  }
+
+  if (options.yarnLock !== undefined) {
+    await writeFile(join(dir, 'yarn.lock'), options.yarnLock);
   }
 
   return {
