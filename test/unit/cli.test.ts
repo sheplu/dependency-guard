@@ -106,6 +106,18 @@ describe('cli.run', () => {
     assert.match(result.stdout, /--include-transitive/);
   });
 
+  it('lists --update and --dry-run in help text', async () => {
+    const result = await run(['--help']);
+    assert.match(result.stdout, /--update <level>/);
+    assert.match(result.stdout, /--dry-run/);
+  });
+
+  it('rejects --update with an unknown level', async () => {
+    const result = await run(['--update', 'patch']);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Invalid --update/);
+  });
+
   it('rejects --max-age with non-integer value', async () => {
     const result = await run(['--max-age', 'abc']);
     assert.equal(result.exitCode, 1);
