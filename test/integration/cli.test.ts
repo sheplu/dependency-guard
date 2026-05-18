@@ -706,4 +706,99 @@ describe('CLI integration', () => {
       assert.doesNotMatch(result.stdout, /Skipped/);
     });
   });
+
+  describe('with --include-transitive', () => {
+    let lockProject: TmpProject;
+
+    beforeEach(async () => {
+      lockProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-lock',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        packageLock: {
+          lockfileVersion: 3,
+          packages: {
+            'node_modules/express': {
+              version: '4.18.2',
+              dependencies: { lodash: '4.17.21' },
+            },
+            'node_modules/lodash': { version: '4.17.21' },
+          },
+        },
+      });
+    });
+
+    afterEach(async () => {
+      await lockProject.cleanup();
+    });
+
+    it('default behavior (without flag) does not include transitives', async () => {
+      const result = await runCli(
+        ['--path', lockProject.packageJsonPath, '--format', 'json', '--no-cache'],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const report = JSON.parse(result.stdout);
+      assert.equal(report.dependencies.length, 1);
+      assert.equal(report.dependencies[0].name, 'express');
+    });
+
+    it('--include-transitive expands the lockfile graph', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          lockProject.packageJsonPath,
+          '--format',
+          'json',
+          '--include-transitive',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const report = JSON.parse(result.stdout);
+      const names = report.dependencies.map((d: { name: string }) => d.name).toSorted();
+      assert.deepEqual(names, ['express', 'lodash']);
+      const lodash = report.dependencies.find((d: { name: string }) => d.name === 'lodash');
+      assert.equal(lodash.transitive, true);
+      const express = report.dependencies.find((d: { name: string }) => d.name === 'express');
+      assert.equal(express.transitive, false);
+    });
+
+    it('renders ↳ prefix for transitive rows in table format', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          lockProject.packageJsonPath,
+          '--format',
+          'table',
+          '--include-transitive',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /↳ lodash/);
+    });
+
+    it('warns on stderr when --include-transitive set but no lockfile is present', async () => {
+      // project has no package-lock.json
+      const result = await runCli(
+        [
+          '--path',
+          project.packageJsonPath,
+          '--format',
+          'json',
+          '--include-transitive',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stderr, /Warning: --include-transitive set, but no transitive dependencies/);
+    });
+  });
 });

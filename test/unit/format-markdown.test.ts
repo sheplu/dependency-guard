@@ -18,6 +18,7 @@ describe('formatMarkdown', () => {
           latestAgeInDays: 199,
           updateType: 'major',
           deprecated: null,
+          transitive: false,
         },
       ],
       skipped: [],
@@ -42,12 +43,36 @@ describe('formatMarkdown', () => {
           latestAgeInDays: 730,
           updateType: 'up-to-date',
           deprecated: null,
+          transitive: false,
         },
       ],
       skipped: [],
     };
     const out = formatMarkdown(report);
     assert.match(out, /\| lodash \| prod \| 4\.17\.21 \| - \| - \| 2y \| 2y \| ✓ Up to date \|/);
+  });
+
+  it('prefixes transitive rows with ↳', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 1, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'body-parser',
+          type: 'dependencies',
+          current: { version: '1.20.0', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 60,
+          latestAgeInDays: 60,
+          updateType: 'up-to-date',
+          deprecated: null,
+          transitive: true,
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatMarkdown(report);
+    assert.match(out, /\| ↳ body-parser \|/);
   });
 
   it('appends a ⚠ marker after deprecated package names', () => {
@@ -64,6 +89,7 @@ describe('formatMarkdown', () => {
           latestAgeInDays: 1500,
           updateType: 'up-to-date',
           deprecated: 'request has been deprecated',
+          transitive: false,
         },
       ],
       skipped: [],
@@ -86,6 +112,7 @@ describe('formatMarkdown', () => {
           latestAgeInDays: 730,
           updateType: 'up-to-date',
           deprecated: null,
+          transitive: false,
         },
       ],
       skipped: [],

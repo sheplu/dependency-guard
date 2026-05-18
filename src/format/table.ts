@@ -40,9 +40,10 @@ export function formatTable(report: AnalysisReport, opts: FormatTableOptions = {
 }
 
 function buildRow(dep: DependencyAnalysis, useColor: boolean): string[] {
-  const name = dep.deprecated !== null
-    ? `${dep.name} ${colorize('⚠', 'yellow', useColor)}`
-    : dep.name;
+  let name = dep.transitive ? `↳ ${dep.name}` : dep.name;
+  if (dep.deprecated !== null) {
+    name = `${name} ${colorize('⚠', 'yellow', useColor)}`;
+  }
   return [
     name,
     typeShort(dep.type),

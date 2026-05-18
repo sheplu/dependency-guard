@@ -25,7 +25,8 @@ export function formatMarkdown(report: AnalysisReport, opts: FormatMarkdownOptio
 }
 
 function row(dep: DependencyAnalysis): string {
-  const name = dep.deprecated !== null ? `${dep.name} ⚠` : dep.name;
+  let name = dep.transitive ? `↳ ${dep.name}` : dep.name;
+  if (dep.deprecated !== null) name = `${name} ⚠`;
   return [
     name,
     typeShort(dep.type),

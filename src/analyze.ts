@@ -1,5 +1,7 @@
+import { dirname } from 'node:path';
 import { analyzeDependency, summarize } from './analyzer.ts';
 import { Cache } from './cache.ts';
+import { expandWithLockfile } from './lockfile.ts';
 import { collectDependencies, type DependencyEntry } from './package-json.ts';
 import { RegistryClient } from './registry.ts';
 import type {
@@ -37,14 +39,35 @@ export async function runAnalysis(
   });
 
   const skipped: SkippedDependency[] = [];
-  const kept: DependencyEntry[] = [];
   const onlySet = options.onlyNames.length > 0 ? new Set(options.onlyNames) : null;
+
+  // Step 1: filter direct deps by --ignore-scope and --only.
+  const directKept: DependencyEntry[] = [];
   for (const entry of entries) {
     const matched = matchScope(entry.name, options.ignoredScopes);
     if (matched !== null) {
       skipped.push({ name: entry.name, type: entry.type, scope: matched });
     } else if (onlySet !== null && !onlySet.has(entry.name)) {
       // dropped by --only; not surfaced in report
+    } else {
+      directKept.push(entry);
+    }
+  }
+
+  // Step 2: expand transitives (if requested), then re-apply --ignore-scope to the new entries.
+  const expanded = options.includeTransitive
+    ? await expandWithLockfile(directKept, dirname(options.path))
+    : directKept;
+
+  const kept: DependencyEntry[] = [];
+  for (const entry of expanded) {
+    if (!entry.transitive) {
+      kept.push(entry);
+      continue;
+    }
+    const matched = matchScope(entry.name, options.ignoredScopes);
+    if (matched !== null) {
+      skipped.push({ name: entry.name, type: entry.type, scope: matched });
     } else {
       kept.push(entry);
     }

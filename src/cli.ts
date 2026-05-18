@@ -23,6 +23,8 @@ Options:
       --ignore-scope <scope> Skip packages in this scope (repeatable, e.g. @mycompany)
       --only <names>         Analyze only these packages (comma-separated or
                              repeatable, e.g. --only express,react)
+      --include-transitive   Also analyze transitive deps from package-lock.json
+                             (npm v3+; default: direct deps only)
       --no-cache             Disable caching of registry responses
       --cache-clear          Clear the registry cache directory and exit
       --cache-ttl <minutes>  Cache TTL in minutes (default: 60)
@@ -65,6 +67,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
         registry: { type: 'string' },
         'ignore-scope': { type: 'string', multiple: true, default: [] },
         only: { type: 'string', multiple: true, default: [] },
+        'include-transitive': { type: 'boolean', default: false },
         quiet: { type: 'boolean', short: 'q', default: false },
         help: { type: 'boolean', short: 'h', default: false },
         version: { type: 'boolean', short: 'v', default: false },
@@ -96,6 +99,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     registry?: string;
     'ignore-scope': string[];
     only: string[];
+    'include-transitive': boolean;
     quiet: boolean;
     help: boolean;
     version: boolean;
@@ -197,6 +201,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     maxAgeDays,
     sortBy,
     registryUrl,
+    includeTransitive: values['include-transitive'],
   };
 
   let extraStderr = '';
@@ -227,6 +232,15 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
           useColor,
         ) + '\n';
       }
+    }
+
+    if (options.includeTransitive && report.dependencies.every((d) => !d.transitive)) {
+      const useColor = Boolean(process.stderr.isTTY);
+      extraStderr += colorize(
+        'Warning: --include-transitive set, but no transitive dependencies were analyzed (missing package-lock.json or lockfile version <3?).',
+        'yellow',
+        useColor,
+      ) + '\n';
     }
 
     const policy = evaluatePolicy(report, {

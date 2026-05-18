@@ -12,6 +12,7 @@ function makeEntry(installed: string): DependencyEntry {
     type: 'dependencies',
     spec: `^${installed}`,
     installedVersion: installed,
+    transitive: false,
   };
 }
 
@@ -100,6 +101,7 @@ describe('analyzeDependency', () => {
         type: 'dependencies',
         spec: 'garbage',
         installedVersion: 'not-a-version',
+        transitive: false,
       },
       metadata: makeMetadata({ '1.0.0': '2026-01-01T00:00:00Z' }),
       now: NOW,
@@ -115,6 +117,7 @@ describe('analyzeDependency', () => {
         type: 'dependencies',
         spec: '',
         installedVersion: null,
+        transitive: false,
       },
       metadata: makeMetadata({ '1.0.0': '2026-01-01T00:00:00Z' }),
       now: NOW,

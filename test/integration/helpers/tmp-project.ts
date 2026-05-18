@@ -5,6 +5,7 @@ import { join } from 'node:path';
 export interface TmpProjectOptions {
   packageJson: Record<string, unknown>;
   installed?: Record<string, string>;
+  packageLock?: Record<string, unknown>;
 }
 
 export interface TmpProject {
@@ -24,6 +25,13 @@ export async function createTmpProject(options: TmpProjectOptions): Promise<TmpP
     await writeFile(
       join(pkgDir, 'package.json'),
       JSON.stringify({ name, version }),
+    );
+  }
+
+  if (options.packageLock !== undefined) {
+    await writeFile(
+      join(dir, 'package-lock.json'),
+      JSON.stringify(options.packageLock, null, 2),
     );
   }
 

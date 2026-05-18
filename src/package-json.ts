@@ -17,6 +17,7 @@ export interface DependencyEntry {
   type: DependencyType;
   spec: string;
   installedVersion: string | null;
+  transitive: boolean;
 }
 
 export interface DependencyFilters {
@@ -63,6 +64,7 @@ export async function collectDependencies(
         type,
         spec,
         installedVersion: installed ?? stripRange(spec),
+        transitive: false,
       });
     }
   }

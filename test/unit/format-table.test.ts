@@ -18,6 +18,7 @@ describe('formatTable', () => {
           latestAgeInDays: 199,
           updateType: 'major',
           deprecated: null,
+          transitive: false,
         },
         {
           name: 'lodash',
@@ -29,6 +30,7 @@ describe('formatTable', () => {
           latestAgeInDays: 730,
           updateType: 'up-to-date',
           deprecated: null,
+          transitive: false,
         },
       ],
       skipped: [],
@@ -61,6 +63,7 @@ describe('formatTable', () => {
           latestAgeInDays: 199,
           updateType: 'major',
           deprecated: null,
+          transitive: false,
         },
         {
           name: 'b-minor',
@@ -72,6 +75,7 @@ describe('formatTable', () => {
           latestAgeInDays: 75,
           updateType: 'minor',
           deprecated: null,
+          transitive: false,
         },
         {
           name: 'c-uptodate',
@@ -83,6 +87,7 @@ describe('formatTable', () => {
           latestAgeInDays: 730,
           updateType: 'up-to-date',
           deprecated: null,
+          transitive: false,
         },
       ],
       skipped: [],
@@ -110,6 +115,7 @@ describe('formatTable', () => {
           latestAgeInDays: 730,
           updateType: 'up-to-date',
           deprecated: null,
+          transitive: false,
         },
       ],
       skipped: [],
@@ -118,6 +124,42 @@ describe('formatTable', () => {
     assert.doesNotMatch(out, /Summary:/);
     assert.match(out, /│ Package /);
     assert.match(out, /lodash/);
+  });
+
+  it('prefixes transitive rows with ↳', () => {
+    const report: AnalysisReport = {
+      summary: { total: 2, upToDate: 2, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'express',
+          type: 'dependencies',
+          current: { version: '4.18.2', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 30,
+          latestAgeInDays: 30,
+          updateType: 'up-to-date',
+          deprecated: null,
+          transitive: false,
+        },
+        {
+          name: 'body-parser',
+          type: 'dependencies',
+          current: { version: '1.20.0', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 60,
+          latestAgeInDays: 60,
+          updateType: 'up-to-date',
+          deprecated: null,
+          transitive: true,
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatTable(report, { color: false });
+    assert.match(out, /│ express\s+│/);
+    assert.match(out, /│ ↳ body-parser\s+│/);
   });
 
   it('appends a ⚠ marker after deprecated package names', () => {
@@ -134,6 +176,7 @@ describe('formatTable', () => {
           latestAgeInDays: 1500,
           updateType: 'up-to-date',
           deprecated: 'request has been deprecated',
+          transitive: false,
         },
       ],
       skipped: [],
