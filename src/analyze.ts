@@ -25,7 +25,9 @@ export async function runAnalysis(
     enabled: options.cache,
     ttlMs: options.cacheTtlMinutes * 60_000,
   });
-  const registry = deps.registry ?? new RegistryClient({ cache });
+  const registry =
+    deps.registry ??
+    new RegistryClient({ cache, baseUrl: options.registryUrl ?? undefined });
 
   const entries = await collectDependencies(options.path, {
     prod: options.prod,

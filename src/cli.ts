@@ -30,6 +30,8 @@ Options:
                              (major | minor | any | deprecated)
       --max-age <days>       Exit 2 if any installed version is older than N days
       --sort <field>         Sort by age, status, or name (default: type then name)
+      --registry <url>       Registry URL (default: https://registry.npmjs.org;
+                             also via DEPENDENCY_GUARD_REGISTRY_URL env var)
   -h, --help                 Show help
   -v, --version              Show version number
 `;
@@ -60,6 +62,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
         'fail-on': { type: 'string' },
         'max-age': { type: 'string' },
         sort: { type: 'string' },
+        registry: { type: 'string' },
         'ignore-scope': { type: 'string', multiple: true, default: [] },
         only: { type: 'string', multiple: true, default: [] },
         quiet: { type: 'boolean', short: 'q', default: false },
@@ -90,6 +93,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     'fail-on'?: string;
     'max-age'?: string;
     sort?: string;
+    registry?: string;
     'ignore-scope': string[];
     only: string[];
     quiet: boolean;
@@ -164,6 +168,19 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     sortBy = sortRaw;
   }
 
+  const registryRaw = values.registry;
+  let registryUrl: string | null = null;
+  if (registryRaw !== undefined) {
+    if (!isHttpUrl(registryRaw)) {
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr: `Invalid --registry: ${registryRaw} (expected URL starting with http:// or https://)\n`,
+      };
+    }
+    registryUrl = registryRaw;
+  }
+
   const options: CliOptions = {
     path: values.path,
     format: values.format,
@@ -179,7 +196,18 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     failOnLevel,
     maxAgeDays,
     sortBy,
+    registryUrl,
   };
+
+  let extraStderr = '';
+  if (options.registryUrl !== null && options.registryUrl.startsWith('http://')) {
+    const useColor = Boolean(process.stderr.isTTY);
+    extraStderr += colorize(
+      `Warning: --registry is using plain HTTP (${options.registryUrl}); prefer HTTPS when available.`,
+      'yellow',
+      useColor,
+    ) + '\n';
+  }
 
   try {
     const report = await runAnalysis(options);
@@ -188,7 +216,6 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
       out += '\n\n' + skippedSummary(report);
     }
 
-    let extraStderr = '';
     if (options.onlyNames.length > 0) {
       const analyzed = new Set(report.dependencies.map((d) => d.name));
       const unmatched = options.onlyNames.filter((n) => !analyzed.has(n));
@@ -219,7 +246,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     return {
       exitCode: 1,
       stdout: '',
-      stderr: `${(err as Error).message}\n`,
+      stderr: extraStderr + `${(err as Error).message}\n`,
     };
   }
 }
@@ -234,6 +261,13 @@ function isFailOnLevel(value: string): value is FailOnLevel {
 
 function isSortField(value: string): value is SortField {
   return value === 'age' || value === 'status' || value === 'name';
+}
+
+function isHttpUrl(value: string): boolean {
+  if (!/^https?:\/\//.test(value)) return false;
+  if (!URL.canParse(value)) return false;
+  const parsed = new URL(value);
+  return parsed.hostname.length > 0;
 }
 
 function skippedSummary(report: AnalysisReport): string {

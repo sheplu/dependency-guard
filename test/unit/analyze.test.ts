@@ -48,6 +48,7 @@ describe('runAnalysis', () => {
             failOnLevel: null,
             maxAgeDays: null,
             sortBy: null,
+            registryUrl: null,
             onlyNames: [],
           },
           { registry, cache },
@@ -87,6 +88,7 @@ describe('runAnalysis', () => {
             failOnLevel: null,
             maxAgeDays: null,
             sortBy: null,
+            registryUrl: null,
             onlyNames: [],
           },
           { registry, cache },
@@ -133,6 +135,7 @@ describe('runAnalysis', () => {
         failOnLevel: null,
         maxAgeDays: null,
         sortBy: null,
+            registryUrl: null,
         onlyNames: [],
       },
       { registry, cache },
@@ -187,6 +190,7 @@ describe('runAnalysis', () => {
         failOnLevel: null,
         maxAgeDays: null,
         sortBy: null,
+            registryUrl: null,
         onlyNames: [],
       },
       { registry, cache },
@@ -232,6 +236,7 @@ describe('runAnalysis', () => {
         failOnLevel: null,
         maxAgeDays: null,
         sortBy: null,
+            registryUrl: null,
         onlyNames: [],
       },
       { registry, cache },
@@ -276,6 +281,7 @@ describe('runAnalysis', () => {
         failOnLevel: null,
         maxAgeDays: null,
         sortBy: null,
+            registryUrl: null,
         onlyNames: [],
       },
       { registry, cache },
@@ -362,6 +368,7 @@ describe('runAnalysis sorting', () => {
       failOnLevel: null,
       maxAgeDays: null,
       sortBy,
+      registryUrl: null,
     };
   }
 
@@ -593,6 +600,7 @@ describe('runAnalysis --only filter', () => {
       failOnLevel: null,
       maxAgeDays: null,
       sortBy: null,
+            registryUrl: null,
       ...overrides,
     };
   }

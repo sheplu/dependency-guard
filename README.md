@@ -73,8 +73,30 @@ Summary:
 | `--peer` | | Only check peer dependencies | `false` |
 | `--optional` | | Only check optional dependencies | `false` |
 | `--no-cache` | | Disable caching of registry responses | `false` |
+| `--registry <url>` | | Registry URL to query (also via `DEPENDENCY_GUARD_REGISTRY_URL` env var) | `https://registry.npmjs.org` |
 | `--help` | `-h` | Show help | |
 | `--version` | `-v` | Show version number | |
+
+> Run `dependency-guard --help` for the full set of flags, including
+> `--ignore-scope`, `--only`, `--quiet`, `--cache-clear`, `--cache-ttl`,
+> `--fail-on`, `--max-age`, and `--sort`.
+
+## Custom Registry
+
+Point at a private mirror or proxy when the public npm registry isn't reachable:
+
+```bash
+# CLI flag (one-off)
+dependency-guard --registry https://nexus.example.com/repository/npm-proxy
+
+# Environment variable (persistent across runs)
+export DEPENDENCY_GUARD_REGISTRY_URL=https://nexus.example.com/repository/npm-proxy
+dependency-guard
+```
+
+The flag wins when both are set. Authenticated registries aren't supported
+yet; for private packages on a registry that requires auth, use `--ignore-scope`
+to skip them.
 
 ## Output Formats
 
