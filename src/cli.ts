@@ -5,7 +5,8 @@ import { formatJson } from './format/json.ts';
 import { formatMarkdown } from './format/markdown.ts';
 import { formatTable } from './format/table.ts';
 import { colorize } from './format/shared.ts';
-import type { AnalysisReport, CliOptions, OutputFormat } from './types.ts';
+import { evaluatePolicy } from './policy.ts';
+import type { AnalysisReport, CliOptions, FailOnLevel, OutputFormat } from './types.ts';
 
 const HELP = `Usage: dependency-guard [options]
 
@@ -23,6 +24,9 @@ Options:
       --no-cache             Disable caching of registry responses
       --cache-clear          Clear the registry cache directory and exit
       --cache-ttl <minutes>  Cache TTL in minutes (default: 60)
+      --fail-on <level>      Exit 2 if any dependency needs an upgrade at this level
+                             (major | minor | any)
+      --max-age <days>       Exit 2 if any installed version is older than N days
   -h, --help                 Show help
   -v, --version              Show version number
 `;
@@ -50,6 +54,8 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
         cache: { type: 'boolean', default: true },
         'cache-clear': { type: 'boolean', default: false },
         'cache-ttl': { type: 'string', default: '60' },
+        'fail-on': { type: 'string' },
+        'max-age': { type: 'string' },
         'ignore-scope': { type: 'string', multiple: true, default: [] },
         quiet: { type: 'boolean', short: 'q', default: false },
         help: { type: 'boolean', short: 'h', default: false },
@@ -76,6 +82,8 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     cache: boolean;
     'cache-clear': boolean;
     'cache-ttl': string;
+    'fail-on'?: string;
+    'max-age'?: string;
     'ignore-scope': string[];
     quiet: boolean;
     help: boolean;
@@ -109,6 +117,33 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     };
   }
 
+  const failOnRaw = values['fail-on'];
+  let failOnLevel: FailOnLevel | null = null;
+  if (failOnRaw !== undefined) {
+    if (!isFailOnLevel(failOnRaw)) {
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr: `Invalid --fail-on: ${failOnRaw} (expected one of: major, minor, any)\n`,
+      };
+    }
+    failOnLevel = failOnRaw;
+  }
+
+  const maxAgeRaw = values['max-age'];
+  let maxAgeDays: number | null = null;
+  if (maxAgeRaw !== undefined) {
+    const parsedAge = Number(maxAgeRaw);
+    if (!Number.isInteger(parsedAge) || parsedAge <= 0) {
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr: `Invalid --max-age: ${maxAgeRaw} (expected positive integer days)\n`,
+      };
+    }
+    maxAgeDays = parsedAge;
+  }
+
   const options: CliOptions = {
     path: values.path,
     format: values.format,
@@ -120,6 +155,8 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     cacheTtlMinutes,
     ignoredScopes: values['ignore-scope'],
     quiet: values.quiet,
+    failOnLevel,
+    maxAgeDays,
   };
 
   try {
@@ -128,6 +165,19 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     if (options.format !== 'json' && report.skipped.length > 0) {
       out += '\n\n' + skippedSummary(report);
     }
+
+    const policy = evaluatePolicy(report, {
+      failOnLevel: options.failOnLevel,
+      maxAgeDays: options.maxAgeDays,
+    });
+    if (!policy.passed) {
+      return {
+        exitCode: 2,
+        stdout: out + '\n',
+        stderr: `Policy check failed:\n${policy.reasons.map((r) => `  - ${r}`).join('\n')}\n`,
+      };
+    }
+
     return { exitCode: 0, stdout: out + '\n', stderr: '' };
   } catch (err) {
     return {
@@ -136,6 +186,10 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
       stderr: `${(err as Error).message}\n`,
     };
   }
+}
+
+function isFailOnLevel(value: string): value is FailOnLevel {
+  return value === 'major' || value === 'minor' || value === 'any';
 }
 
 function skippedSummary(report: AnalysisReport): string {

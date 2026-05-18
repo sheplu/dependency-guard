@@ -65,6 +65,36 @@ describe('cli.run', () => {
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /Invalid --cache-ttl/);
   });
+
+  it('lists --fail-on and --max-age in help text', async () => {
+    const result = await run(['--help']);
+    assert.match(result.stdout, /--fail-on <level>/);
+    assert.match(result.stdout, /--max-age <days>/);
+  });
+
+  it('rejects --fail-on with an unknown level', async () => {
+    const result = await run(['--fail-on', 'patch']);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Invalid --fail-on/);
+  });
+
+  it('rejects --max-age with non-integer value', async () => {
+    const result = await run(['--max-age', 'abc']);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Invalid --max-age/);
+  });
+
+  it('rejects --max-age with zero', async () => {
+    const result = await run(['--max-age', '0']);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Invalid --max-age/);
+  });
+
+  it('rejects --max-age with negative value', async () => {
+    const result = await run(['--max-age=-5']);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Invalid --max-age/);
+  });
 });
 
 describe('cli.run --cache-clear', () => {

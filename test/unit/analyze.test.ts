@@ -45,6 +45,8 @@ describe('runAnalysis', () => {
             cacheTtlMinutes: 60,
             ignoredScopes: [],
             quiet: false,
+            failOnLevel: null,
+            maxAgeDays: null,
           },
           { registry, cache },
         ),
@@ -80,6 +82,8 @@ describe('runAnalysis', () => {
             cacheTtlMinutes: 60,
             ignoredScopes: [],
             quiet: false,
+            failOnLevel: null,
+            maxAgeDays: null,
           },
           { registry, cache },
         ),
@@ -122,6 +126,8 @@ describe('runAnalysis', () => {
         cacheTtlMinutes: 60,
         ignoredScopes: [],
         quiet: false,
+        failOnLevel: null,
+        maxAgeDays: null,
       },
       { registry, cache },
     );
@@ -172,6 +178,8 @@ describe('runAnalysis', () => {
         cacheTtlMinutes: 60,
         ignoredScopes: ['@private'],
         quiet: false,
+        failOnLevel: null,
+        maxAgeDays: null,
       },
       { registry, cache },
     );
@@ -213,6 +221,8 @@ describe('runAnalysis', () => {
         cacheTtlMinutes: 60,
         ignoredScopes: ['@a', '@b'],
         quiet: false,
+        failOnLevel: null,
+        maxAgeDays: null,
       },
       { registry, cache },
     );
@@ -253,6 +263,8 @@ describe('runAnalysis', () => {
         cacheTtlMinutes: 60,
         ignoredScopes: [],
         quiet: false,
+        failOnLevel: null,
+        maxAgeDays: null,
       },
       { registry, cache },
     );
