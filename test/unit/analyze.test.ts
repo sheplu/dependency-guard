@@ -48,6 +48,7 @@ describe('runAnalysis', () => {
             failOnLevel: null,
             maxAgeDays: null,
             sortBy: null,
+            onlyNames: [],
           },
           { registry, cache },
         ),
@@ -86,6 +87,7 @@ describe('runAnalysis', () => {
             failOnLevel: null,
             maxAgeDays: null,
             sortBy: null,
+            onlyNames: [],
           },
           { registry, cache },
         ),
@@ -131,6 +133,7 @@ describe('runAnalysis', () => {
         failOnLevel: null,
         maxAgeDays: null,
         sortBy: null,
+        onlyNames: [],
       },
       { registry, cache },
     );
@@ -184,6 +187,7 @@ describe('runAnalysis', () => {
         failOnLevel: null,
         maxAgeDays: null,
         sortBy: null,
+        onlyNames: [],
       },
       { registry, cache },
     );
@@ -228,6 +232,7 @@ describe('runAnalysis', () => {
         failOnLevel: null,
         maxAgeDays: null,
         sortBy: null,
+        onlyNames: [],
       },
       { registry, cache },
     );
@@ -271,6 +276,7 @@ describe('runAnalysis', () => {
         failOnLevel: null,
         maxAgeDays: null,
         sortBy: null,
+        onlyNames: [],
       },
       { registry, cache },
     );
@@ -351,6 +357,7 @@ describe('runAnalysis sorting', () => {
       cache: false,
       cacheTtlMinutes: 60,
       ignoredScopes: [],
+      onlyNames: [],
       quiet: false,
       failOnLevel: null,
       maxAgeDays: null,
@@ -534,5 +541,136 @@ describe('runAnalysis sorting', () => {
     const names = report.dependencies.map((d) => d.name);
     // alpha-dev (200d) first, gamma-peer (10d) second, beta-prod (null) last
     assert.deepEqual(names, ['alpha-dev', 'gamma-peer', 'beta-prod']);
+  });
+});
+
+describe('runAnalysis --only filter', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'dep-guard-only-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  function makeRegistry() {
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: ((url: string) => {
+        const name = decodeURIComponent(url.split('/').pop() ?? '');
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ name, versions: { '1.0.0': {} }, time: { '1.0.0': '2026-01-01T00:00:00Z' } }),
+            { headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }) as unknown as typeof fetch,
+    });
+    return { cache, registry };
+  }
+
+  function makeOptions(overrides: Partial<{
+    prod: boolean;
+    onlyNames: string[];
+    ignoredScopes: string[];
+  }> = {}) {
+    return {
+      path: join(dir, 'package.json'),
+      format: 'json' as const,
+      prod: false,
+      dev: false,
+      peer: false,
+      optional: false,
+      cache: false,
+      cacheTtlMinutes: 60,
+      ignoredScopes: [],
+      onlyNames: [],
+      quiet: false,
+      failOnLevel: null,
+      maxAgeDays: null,
+      sortBy: null,
+      ...overrides,
+    };
+  }
+
+  it('keeps only matching packages and drops the rest', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { express: '1.0.0', lodash: '1.0.0' },
+        devDependencies: { typescript: '1.0.0' },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ onlyNames: ['express'] }),
+      { registry, cache },
+    );
+    assert.deepEqual(
+      report.dependencies.map((d) => d.name),
+      ['express'],
+    );
+  });
+
+  it('does not include unmatched names in the report (caller warns separately)', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { express: '1.0.0' } }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ onlyNames: ['express', 'nonexistent'] }),
+      { registry, cache },
+    );
+    assert.deepEqual(
+      report.dependencies.map((d) => d.name),
+      ['express'],
+    );
+  });
+
+  it('--ignore-scope wins over --only when both match (privacy first)', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { '@private/foo': '1.0.0' } }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ ignoredScopes: ['@private'], onlyNames: ['@private/foo'] }),
+      { registry, cache },
+    );
+    assert.deepEqual(report.dependencies, []);
+    assert.equal(report.skipped.length, 1);
+    assert.equal(report.skipped[0].name, '@private/foo');
+  });
+
+  it('--only AND --prod: dev-only --only target is dropped', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { express: '1.0.0' },
+        devDependencies: { typescript: '1.0.0' },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ prod: true, onlyNames: ['typescript'] }),
+      { registry, cache },
+    );
+    // typescript is filtered out by --prod; express isn't in --only
+    assert.deepEqual(report.dependencies, []);
+  });
+
+  it('empty onlyNames behaves as no-op', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { express: '1.0.0', lodash: '1.0.0' } }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(makeOptions({ onlyNames: [] }), { registry, cache });
+    assert.equal(report.dependencies.length, 2);
   });
 });

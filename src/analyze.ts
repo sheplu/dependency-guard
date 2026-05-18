@@ -36,10 +36,13 @@ export async function runAnalysis(
 
   const skipped: SkippedDependency[] = [];
   const kept: DependencyEntry[] = [];
+  const onlySet = options.onlyNames.length > 0 ? new Set(options.onlyNames) : null;
   for (const entry of entries) {
     const matched = matchScope(entry.name, options.ignoredScopes);
     if (matched !== null) {
       skipped.push({ name: entry.name, type: entry.type, scope: matched });
+    } else if (onlySet !== null && !onlySet.has(entry.name)) {
+      // dropped by --only; not surfaced in report
     } else {
       kept.push(entry);
     }

@@ -374,6 +374,106 @@ describe('CLI integration', () => {
     );
   });
 
+  it('--only narrows analysis to a single package', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--only',
+        'express',
+        '--no-cache',
+      ],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.deepEqual(
+      report.dependencies.map((d: { name: string }) => d.name),
+      ['express'],
+    );
+  });
+
+  it('--only accepts comma-separated and repeatable forms', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--only',
+        'express,typescript',
+        '--no-cache',
+      ],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    const names = report.dependencies.map((d: { name: string }) => d.name).toSorted();
+    assert.deepEqual(names, ['express', 'typescript']);
+  });
+
+  it('--only accepts repeatable form (--only a --only b)', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--only',
+        'express',
+        '--only',
+        'typescript',
+        '--no-cache',
+      ],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    const names = report.dependencies.map((d: { name: string }) => d.name).toSorted();
+    assert.deepEqual(names, ['express', 'typescript']);
+  });
+
+  it('--only with unmatched names emits a stderr warning but exits 0', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--only',
+        'nonexistent',
+        '--no-cache',
+      ],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.dependencies.length, 0);
+    assert.match(result.stderr, /Warning: --only includes name\(s\) not found.*nonexistent/);
+  });
+
+  it('--only AND --prod intersect (dev target dropped)', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--only',
+        'typescript',
+        '--prod',
+        '--no-cache',
+      ],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    // typescript is dev, --prod drops it; --only keeps nothing matching
+    assert.equal(report.dependencies.length, 0);
+  });
+
   describe('with --ignore-scope', () => {
     let privateProject: TmpProject;
 
