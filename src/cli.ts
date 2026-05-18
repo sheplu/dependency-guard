@@ -8,7 +8,9 @@ import { formatMarkdown } from './format/markdown.ts';
 import { formatTable } from './format/table.ts';
 import { colorize } from './format/shared.ts';
 import { evaluatePolicy } from './policy.ts';
-import type { AnalysisReport, CliOptions, FailOnLevel, OutputFormat, SortField } from './types.ts';
+import type { AnalysisReport, CliOptions, FailOnLevel, OutputFormat, SortField, UpdateLevel } from './types.ts';
+import { applyUpdates, collectAllSpecs, planUpdates, type PlannedUpdate } from './update.ts';
+import { readPackageJson } from './package-json.ts';
 
 const HELP = `Usage: dependency-guard [options]
 
@@ -36,6 +38,9 @@ Options:
       --sort <field>         Sort by age, status, or name (default: type then name)
       --registry <url>       Registry URL (default: https://registry.npmjs.org;
                              also via DEPENDENCY_GUARD_REGISTRY_URL env var)
+      --update <level>       Rewrite package.json with the chosen upgrades
+                             (minor | major); leaves up-to-date deps alone
+      --dry-run              With --update, preview the changes without writing
   -h, --help                 Show help
   -v, --version              Show version number
 `;
@@ -70,6 +75,8 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
         'ignore-scope': { type: 'string', multiple: true, default: [] },
         only: { type: 'string', multiple: true, default: [] },
         'include-transitive': { type: 'boolean', default: false },
+        update: { type: 'string' },
+        'dry-run': { type: 'boolean', default: false },
         quiet: { type: 'boolean', short: 'q', default: false },
         help: { type: 'boolean', short: 'h', default: false },
         version: { type: 'boolean', short: 'v', default: false },
@@ -102,6 +109,8 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     'ignore-scope': string[];
     only: string[];
     'include-transitive': boolean;
+    update?: string;
+    'dry-run': boolean;
     quiet: boolean;
     help: boolean;
     version: boolean;
@@ -187,6 +196,19 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     registryUrl = registryRaw;
   }
 
+  const updateRaw = values.update;
+  let updateLevel: UpdateLevel | null = null;
+  if (updateRaw !== undefined) {
+    if (!isUpdateLevel(updateRaw)) {
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr: `Invalid --update: ${updateRaw} (expected one of: minor, major)\n`,
+      };
+    }
+    updateLevel = updateRaw;
+  }
+
   const options: CliOptions = {
     path: values.path,
     format: values.format,
@@ -204,6 +226,8 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     sortBy,
     registryUrl,
     includeTransitive: values['include-transitive'],
+    updateLevel,
+    dryRun: values['dry-run'],
   };
 
   let extraStderr = '';
@@ -281,6 +305,28 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
       };
     }
 
+    if (options.updateLevel !== null) {
+      const pkg = await readPackageJson(options.path);
+      const originalSpecs = collectAllSpecs(pkg);
+      const updates = planUpdates(report, options.updateLevel, originalSpecs);
+      const useColor = Boolean(process.stdout.isTTY);
+      if (updates.length === 0) {
+        out += `\n\nNo updates to apply at level "${options.updateLevel}".`;
+      } else if (options.dryRun) {
+        out += '\n\n' + formatUpdateSummary(updates, options.updateLevel, true, useColor);
+      } else {
+        await applyUpdates(options.path, updates);
+        out += '\n\n' + formatUpdateSummary(updates, options.updateLevel, false, useColor);
+      }
+    } else if (options.dryRun) {
+      const useColor = Boolean(process.stderr.isTTY);
+      extraStderr += colorize(
+        'Warning: --dry-run requires --update; ignored.',
+        'yellow',
+        useColor,
+      ) + '\n';
+    }
+
     return { exitCode: 0, stdout: out + '\n', stderr: extraStderr };
   } catch (err) {
     return {
@@ -301,6 +347,29 @@ function isFailOnLevel(value: string): value is FailOnLevel {
 
 function isSortField(value: string): value is SortField {
   return value === 'age' || value === 'status' || value === 'name';
+}
+
+function isUpdateLevel(value: string): value is UpdateLevel {
+  return value === 'minor' || value === 'major';
+}
+
+function formatUpdateSummary(
+  updates: ReadonlyArray<PlannedUpdate>,
+  level: UpdateLevel,
+  dryRun: boolean,
+  useColor: boolean,
+): string {
+  const headline = dryRun
+    ? `Would apply ${updates.length} update(s) at level "${level}":`
+    : `Updated ${updates.length} dep(s) in package.json at level "${level}":`;
+  const arrow = dryRun ? '↑' : '✓';
+  const arrowColor = dryRun ? 'yellow' : 'green';
+  const nameWidth = updates.reduce((m, u) => Math.max(m, u.name.length), 0);
+  const lines = updates.map((u) => {
+    const padded = u.name.padEnd(nameWidth);
+    return `  ${colorize(arrow, arrowColor, useColor)} ${padded}  ${u.oldSpec} → ${u.newSpec}`;
+  });
+  return [colorize(headline, arrowColor, useColor), ...lines].join('\n');
 }
 
 function isHttpUrl(value: string): boolean {

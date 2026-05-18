@@ -12,6 +12,8 @@ export type FailOnLevel = 'major' | 'minor' | 'any' | 'deprecated';
 
 export type SortField = 'age' | 'status' | 'name';
 
+export type UpdateLevel = 'minor' | 'major';
+
 export interface VersionInfo {
   version: string;
   publishedAt: string | null;
@@ -66,6 +68,8 @@ export interface CliOptions {
   sortBy: SortField | null;
   registryUrl: string | null;
   includeTransitive: boolean;
+  updateLevel: UpdateLevel | null;
+  dryRun: boolean;
 }
 
 export interface RegistryPackageMetadata {

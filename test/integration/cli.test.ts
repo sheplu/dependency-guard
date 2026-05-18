@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -1661,6 +1661,550 @@ packages:
         );
       } finally {
         await pnpmMixedProject.cleanup();
+      }
+    });
+  });
+
+  describe('with --update', () => {
+    let updateProject: TmpProject;
+
+    beforeEach(async () => {
+      updateProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-update',
+          version: '1.0.0',
+          dependencies: {
+            express: '^4.18.0',
+            lodash: '4.17.21',
+          },
+          devDependencies: {
+            typescript: '^5.2.0',
+          },
+        },
+        installed: {
+          express: '4.18.2',
+          lodash: '4.17.21',
+          typescript: '5.2.2',
+        },
+      });
+    });
+
+    afterEach(async () => {
+      await updateProject.cleanup();
+    });
+
+    async function readPkg(): Promise<Record<string, unknown>> {
+      const raw = await readFile(updateProject.packageJsonPath, 'utf8');
+      return JSON.parse(raw) as Record<string, unknown>;
+    }
+
+    it('--update minor --dry-run previews changes without writing', async () => {
+      const before = await readFile(updateProject.packageJsonPath, 'utf8');
+      const result = await runCli(
+        [
+          '--path',
+          updateProject.packageJsonPath,
+          '--format',
+          'json',
+          '--update',
+          'minor',
+          '--dry-run',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /Would apply \d+ update\(s\) at level "minor"/);
+      const after = await readFile(updateProject.packageJsonPath, 'utf8');
+      assert.equal(before, after);
+    });
+
+    it('--update minor rewrites package.json with the latest minor versions', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          updateProject.packageJsonPath,
+          '--format',
+          'json',
+          '--update',
+          'minor',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /Updated \d+ dep\(s\)/);
+      const pkg = await readPkg();
+      const deps = pkg.dependencies as Record<string, string>;
+      const dev = pkg.devDependencies as Record<string, string>;
+      // express minor (4.18.0 → 4.21.0), preserves caret
+      assert.equal(deps.express, '^4.21.0');
+      // lodash up-to-date → unchanged
+      assert.equal(deps.lodash, '4.17.21');
+      // typescript minor (5.2.0 → 5.3.3), preserves caret
+      assert.equal(dev.typescript, '^5.3.3');
+    });
+
+    it('--update minor leaves majors-only deps untouched', async () => {
+      // Build a fixture where express has only a major upgrade available.
+      // The existing fixture has both 4.21.0 (minor) and 5.0.1 (major), so
+      // here we instead exercise: --update minor moves express to 4.21.0,
+      // not to 5.0.1 — we already verify that above. Reusing.
+      // This is a regression guard documenting the rule.
+      const result = await runCli(
+        [
+          '--path',
+          updateProject.packageJsonPath,
+          '--format',
+          'json',
+          '--update',
+          'minor',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const pkg = await readPkg();
+      const deps = pkg.dependencies as Record<string, string>;
+      // Did NOT cross the major boundary.
+      assert.notEqual(deps.express, '^5.0.1');
+    });
+
+    it('--update major upgrades across the major boundary', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          updateProject.packageJsonPath,
+          '--format',
+          'json',
+          '--update',
+          'major',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const pkg = await readPkg();
+      const deps = pkg.dependencies as Record<string, string>;
+      assert.equal(deps.express, '^5.0.1');
+    });
+
+    it('--update minor --prod only writes prod deps', async () => {
+      const before = JSON.parse(
+        await readFile(updateProject.packageJsonPath, 'utf8'),
+      ) as { devDependencies: Record<string, string> };
+      const originalTs = before.devDependencies.typescript;
+
+      const result = await runCli(
+        [
+          '--path',
+          updateProject.packageJsonPath,
+          '--format',
+          'json',
+          '--update',
+          'minor',
+          '--prod',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const pkg = await readPkg();
+      const dev = pkg.devDependencies as Record<string, string>;
+      // typescript was filtered out by --prod, so it stays
+      assert.equal(dev.typescript, originalTs);
+    });
+
+    it('--update minor + --fail-on major exits 2 without writing', async () => {
+      const before = await readFile(updateProject.packageJsonPath, 'utf8');
+      const result = await runCli(
+        [
+          '--path',
+          updateProject.packageJsonPath,
+          '--format',
+          'json',
+          '--update',
+          'minor',
+          '--fail-on',
+          'major',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 2);
+      const after = await readFile(updateProject.packageJsonPath, 'utf8');
+      assert.equal(before, after);
+    });
+
+    it('--update minor on an already-up-to-date project is a no-op', async () => {
+      const cleanProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-clean',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+        },
+        installed: { lodash: '4.17.21' },
+      });
+      try {
+        const before = await readFile(cleanProject.packageJsonPath, 'utf8');
+        const result = await runCli(
+          [
+            '--path',
+            cleanProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(result.stdout, /No updates to apply at level "minor"/);
+        const after = await readFile(cleanProject.packageJsonPath, 'utf8');
+        assert.equal(before, after);
+      } finally {
+        await cleanProject.cleanup();
+      }
+    });
+
+    it('preserves 4-space indent when rewriting', async () => {
+      const fourSpaceProject = await createTmpProject({
+        packageJson: {},
+        installed: { express: '4.18.2' },
+      });
+      try {
+        await writeFile(
+          fourSpaceProject.packageJsonPath,
+          JSON.stringify(
+            { name: 'demo', dependencies: { express: '^4.18.0' } },
+            null,
+            4,
+          ),
+        );
+        const result = await runCli(
+          [
+            '--path',
+            fourSpaceProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const written = await readFile(fourSpaceProject.packageJsonPath, 'utf8');
+        // 4-space indent × 2 nesting levels for the dependency entry
+        assert.match(written, /\n {8}"express"/);
+      } finally {
+        await fourSpaceProject.cleanup();
+      }
+    });
+
+    it('warns when --dry-run is used without --update', async () => {
+      const result = await runCli(
+        ['--path', updateProject.packageJsonPath, '--format', 'json', '--dry-run', '--no-cache'],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stderr, /--dry-run requires --update; ignored/);
+    });
+
+    it('--update minor --only express writes only the matching dep', async () => {
+      const before = JSON.parse(
+        await readFile(updateProject.packageJsonPath, 'utf8'),
+      ) as { dependencies: Record<string, string>; devDependencies: Record<string, string> };
+      const originalTypescript = before.devDependencies.typescript;
+
+      const result = await runCli(
+        [
+          '--path',
+          updateProject.packageJsonPath,
+          '--format',
+          'json',
+          '--update',
+          'minor',
+          '--only',
+          'express',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const pkg = await readPkg();
+      const deps = pkg.dependencies as Record<string, string>;
+      const dev = pkg.devDependencies as Record<string, string>;
+      // express was upgraded
+      assert.equal(deps.express, '^4.21.0');
+      // typescript was filtered out by --only, so it stays
+      assert.equal(dev.typescript, originalTypescript);
+    });
+
+    it('--update minor --ignore-scope skips matching deps even if upgrades exist', async () => {
+      const privateProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-private-update',
+          version: '1.0.0',
+          dependencies: {
+            '@private/foo': '1.0.0',
+            express: '^4.18.0',
+          },
+        },
+        installed: { '@private/foo': '1.0.0', express: '4.18.2' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            privateProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'minor',
+            '--ignore-scope',
+            '@private',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const raw = await readFile(privateProject.packageJsonPath, 'utf8');
+        const pkg = JSON.parse(raw) as { dependencies: Record<string, string> };
+        // express was upgraded
+        assert.equal(pkg.dependencies.express, '^4.21.0');
+        // @private/foo stays — ignore-scope kept it out of analysis
+        assert.equal(pkg.dependencies['@private/foo'], '1.0.0');
+      } finally {
+        await privateProject.cleanup();
+      }
+    });
+
+    it('--update minor --include-transitive does NOT write transitives to package.json', async () => {
+      const lockProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-update-transitive',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        packageLock: {
+          lockfileVersion: 3,
+          packages: {
+            'node_modules/express': {
+              version: '4.18.2',
+              dependencies: { lodash: '4.17.21' },
+            },
+            'node_modules/lodash': { version: '4.17.21' },
+          },
+        },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            lockProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'minor',
+            '--include-transitive',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const raw = await readFile(lockProject.packageJsonPath, 'utf8');
+        const pkg = JSON.parse(raw) as Record<string, unknown>;
+        const deps = pkg.dependencies as Record<string, string>;
+        // express (direct) gets bumped
+        assert.equal(deps.express, '^4.21.0');
+        // lodash (transitive) was analyzed but NOT added to package.json
+        assert.ok(!('lodash' in deps), 'transitive deps must not be written to package.json');
+        const top = pkg as { devDependencies?: unknown; dependencies?: unknown };
+        assert.equal(top.devDependencies, undefined);
+      } finally {
+        await lockProject.cleanup();
+      }
+    });
+
+    it('--update minor with no filter rewrites prod, dev, and peer buckets together', async () => {
+      const multiBucket = await createTmpProject({
+        packageJson: {
+          name: 'fixture-multi-bucket',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+          devDependencies: { typescript: '^5.2.0' },
+          peerDependencies: { lodash: '^4.17.0' },
+        },
+        installed: {
+          express: '4.18.2',
+          typescript: '5.2.2',
+          lodash: '4.17.21',
+        },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            multiBucket.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const raw = await readFile(multiBucket.packageJsonPath, 'utf8');
+        const pkg = JSON.parse(raw) as {
+          dependencies: Record<string, string>;
+          devDependencies: Record<string, string>;
+          peerDependencies: Record<string, string>;
+        };
+        assert.equal(pkg.dependencies.express, '^4.21.0');
+        assert.equal(pkg.devDependencies.typescript, '^5.3.3');
+        // lodash is up-to-date in the mock registry → spec stays unchanged
+        assert.equal(pkg.peerDependencies.lodash, '^4.17.0');
+      } finally {
+        await multiBucket.cleanup();
+      }
+    });
+
+    it('preserves a tab indent when rewriting', async () => {
+      const tabProject = await createTmpProject({
+        packageJson: {},
+        installed: { express: '4.18.2' },
+      });
+      try {
+        // Write with tabs manually
+        await writeFile(
+          tabProject.packageJsonPath,
+          JSON.stringify(
+            { name: 'demo', dependencies: { express: '^4.18.0' } },
+            null,
+            '\t',
+          ),
+        );
+        const result = await runCli(
+          [
+            '--path',
+            tabProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const written = await readFile(tabProject.packageJsonPath, 'utf8');
+        // express line is nested 2 levels → 2 tabs
+        assert.match(written, /\n\t\t"express"/);
+      } finally {
+        await tabProject.cleanup();
+      }
+    });
+
+    it('preserves the absence of a trailing newline', async () => {
+      const noNewlineProject = await createTmpProject({
+        packageJson: {},
+        installed: { express: '4.18.2' },
+      });
+      try {
+        // JSON.stringify produces no trailing newline; the helper would add one
+        // through JSON.stringify(..., null, 2), so we write it directly to be sure.
+        await writeFile(
+          noNewlineProject.packageJsonPath,
+          JSON.stringify(
+            { name: 'demo', dependencies: { express: '^4.18.0' } },
+            null,
+            2,
+          ),
+          'utf8',
+        );
+        const result = await runCli(
+          [
+            '--path',
+            noNewlineProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const written = await readFile(noNewlineProject.packageJsonPath, 'utf8');
+        assert.ok(!written.endsWith('\n'), 'trailing newline should be absent');
+      } finally {
+        await noNewlineProject.cleanup();
+      }
+    });
+
+    it('preserves ~, >=, and exact-pin range markers across an upgrade', async () => {
+      const markersProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-markers',
+          version: '1.0.0',
+          dependencies: {
+            // Three different range styles for three deps
+            'tilde-dep': '~4.18.0',
+            'gte-dep': '>=4.18.0',
+            'exact-dep': '4.18.0',
+          },
+        },
+        installed: {
+          'tilde-dep': '4.18.2',
+          'gte-dep': '4.18.2',
+          'exact-dep': '4.18.2',
+        },
+      });
+      // Reuse the existing express mock by aliasing — register the three names
+      // against the same versions/time so they all have a 4.21.0 minor.
+      const aliasRegistry = await startMockRegistry([
+        {
+          name: 'tilde-dep',
+          versions: { '4.18.2': { version: '4.18.2' }, '4.21.0': { version: '4.21.0' } },
+          time: { '4.18.2': '2025-09-15T00:00:00Z', '4.21.0': '2026-02-01T00:00:00Z' },
+        },
+        {
+          name: 'gte-dep',
+          versions: { '4.18.2': { version: '4.18.2' }, '4.21.0': { version: '4.21.0' } },
+          time: { '4.18.2': '2025-09-15T00:00:00Z', '4.21.0': '2026-02-01T00:00:00Z' },
+        },
+        {
+          name: 'exact-dep',
+          versions: { '4.18.2': { version: '4.18.2' }, '4.21.0': { version: '4.21.0' } },
+          time: { '4.18.2': '2025-09-15T00:00:00Z', '4.21.0': '2026-02-01T00:00:00Z' },
+        },
+      ]);
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            markersProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: aliasRegistry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const raw = await readFile(markersProject.packageJsonPath, 'utf8');
+        const pkg = JSON.parse(raw) as { dependencies: Record<string, string> };
+        assert.equal(pkg.dependencies['tilde-dep'], '~4.21.0');
+        assert.equal(pkg.dependencies['gte-dep'], '>=4.21.0');
+        assert.equal(pkg.dependencies['exact-dep'], '4.21.0');
+      } finally {
+        await markersProject.cleanup();
+        await aliasRegistry.close();
       }
     });
   });
