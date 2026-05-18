@@ -175,6 +175,48 @@ describe('CLI integration', () => {
     assert.match(result.stderr, /Invalid --format/);
   });
 
+  it('--quiet strips the Summary block from table output', async () => {
+    const result = await runCli(
+      ['--path', project.packageJsonPath, '--format', 'table', '--quiet', '--no-cache'],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /Summary:/);
+    assert.match(result.stdout, /express/);
+  });
+
+  it('--cache-clear exits 0 against an isolated cache dir', async () => {
+    const result = await runCli(['--cache-clear'], {
+      DEPENDENCY_GUARD_CACHE_DIR: cacheDir,
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.match(result.stdout, /Cache cleared:/);
+  });
+
+  it('--cache-ttl <minutes> runs successfully with a valid value', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--cache-ttl',
+        '5',
+        '--no-cache',
+      ],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.summary.total, 3);
+  });
+
+  it('--cache-ttl rejects non-integer values with a clear error', async () => {
+    const result = await runCli(['--cache-ttl', 'abc'], {});
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Invalid --cache-ttl: abc/);
+  });
+
   describe('with --ignore-scope', () => {
     let privateProject: TmpProject;
 

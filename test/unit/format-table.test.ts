@@ -91,6 +91,29 @@ describe('formatTable', () => {
     assert.match(out, /\x1b\[32m/);
   });
 
+  it('omits the Summary block when quiet: true', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 1, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'lodash',
+          type: 'dependencies',
+          current: { version: '4.17.21', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 730,
+          latestAgeInDays: 730,
+          updateType: 'up-to-date',
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatTable(report, { color: false, quiet: true });
+    assert.doesNotMatch(out, /Summary:/);
+    assert.match(out, /│ Package /);
+    assert.match(out, /lodash/);
+  });
+
   it('defaults color to TTY detection when option is omitted', () => {
     const report: AnalysisReport = {
       summary: { total: 0, upToDate: 0, minorUpdates: 0, majorUpdates: 0 },

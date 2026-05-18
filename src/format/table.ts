@@ -6,6 +6,7 @@ const HEADERS = ['Package', 'Type', 'Current', 'Minor', 'Major', 'Age', 'Latest 
 
 export interface FormatTableOptions {
   color?: boolean;
+  quiet?: boolean;
 }
 
 export function formatTable(report: AnalysisReport, opts: FormatTableOptions = {}): string {
@@ -17,12 +18,14 @@ export function formatTable(report: AnalysisReport, opts: FormatTableOptions = {
   );
 
   const lines: string[] = [];
-  lines.push('Summary:');
-  lines.push(`  Total: ${report.summary.total}`);
-  lines.push(`  ${colorize('✓ Up to date', 'green', useColor)}: ${report.summary.upToDate}`);
-  lines.push(`  ${colorize('↑ Minor updates', 'yellow', useColor)}: ${report.summary.minorUpdates}`);
-  lines.push(`  ${colorize('⬆ Major updates', 'red', useColor)}: ${report.summary.majorUpdates}`);
-  lines.push('');
+  if (!opts.quiet) {
+    lines.push('Summary:');
+    lines.push(`  Total: ${report.summary.total}`);
+    lines.push(`  ${colorize('✓ Up to date', 'green', useColor)}: ${report.summary.upToDate}`);
+    lines.push(`  ${colorize('↑ Minor updates', 'yellow', useColor)}: ${report.summary.minorUpdates}`);
+    lines.push(`  ${colorize('⬆ Major updates', 'red', useColor)}: ${report.summary.majorUpdates}`);
+    lines.push('');
+  }
 
   lines.push(border(widths, '┌', '┬', '┐'));
   lines.push(rowLine(HEADERS as unknown as string[], widths));

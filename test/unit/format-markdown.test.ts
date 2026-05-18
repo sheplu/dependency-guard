@@ -47,4 +47,28 @@ describe('formatMarkdown', () => {
     const out = formatMarkdown(report);
     assert.match(out, /\| lodash \| prod \| 4\.17\.21 \| - \| - \| 2y \| 2y \| ✓ Up to date \|/);
   });
+
+  it('omits the heading and bullet list when quiet: true', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 1, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'lodash',
+          type: 'dependencies',
+          current: { version: '4.17.21', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 730,
+          latestAgeInDays: 730,
+          updateType: 'up-to-date',
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatMarkdown(report, { quiet: true });
+    assert.doesNotMatch(out, /## Dependency Report/);
+    assert.doesNotMatch(out, /- Total:/);
+    assert.match(out, /\| Package \|/);
+    assert.match(out, /\| lodash \|/);
+  });
 });

@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 import { runAnalysis } from './analyze.ts';
+import { Cache } from './cache.ts';
 import { formatJson } from './format/json.ts';
 import { formatMarkdown } from './format/markdown.ts';
 import { formatTable } from './format/table.ts';
@@ -13,12 +14,15 @@ Analyze your project's dependencies against the npm registry.
 Options:
   -p, --path <path>          Path to package.json (default: ./package.json)
   -f, --format <format>      Output format: table, json, markdown (default: table)
+  -q, --quiet                Suppress the summary block (table/markdown only)
       --prod                 Only check production dependencies
       --dev                  Only check dev dependencies
       --peer                 Only check peer dependencies
       --optional             Only check optional dependencies
       --ignore-scope <scope> Skip packages in this scope (repeatable, e.g. @mycompany)
       --no-cache             Disable caching of registry responses
+      --cache-clear          Clear the registry cache directory and exit
+      --cache-ttl <minutes>  Cache TTL in minutes (default: 60)
   -h, --help                 Show help
   -v, --version              Show version number
 `;
@@ -44,7 +48,10 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
         peer: { type: 'boolean', default: false },
         optional: { type: 'boolean', default: false },
         cache: { type: 'boolean', default: true },
+        'cache-clear': { type: 'boolean', default: false },
+        'cache-ttl': { type: 'string', default: '60' },
         'ignore-scope': { type: 'string', multiple: true, default: [] },
+        quiet: { type: 'boolean', short: 'q', default: false },
         help: { type: 'boolean', short: 'h', default: false },
         version: { type: 'boolean', short: 'v', default: false },
       },
@@ -67,7 +74,10 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     peer: boolean;
     optional: boolean;
     cache: boolean;
+    'cache-clear': boolean;
+    'cache-ttl': string;
     'ignore-scope': string[];
+    quiet: boolean;
     help: boolean;
     version: boolean;
   };
@@ -75,11 +85,27 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
   if (values.help) return { exitCode: 0, stdout: HELP, stderr: '' };
   if (values.version) return { exitCode: 0, stdout: `${VERSION}\n`, stderr: '' };
 
+  if (values['cache-clear']) {
+    const cache = new Cache();
+    await cache.clear();
+    return { exitCode: 0, stdout: `Cache cleared: ${cache.dir}\n`, stderr: '' };
+  }
+
   if (!isOutputFormat(values.format)) {
     return {
       exitCode: 1,
       stdout: '',
       stderr: `Invalid --format value: ${values.format}. Expected one of: table, json, markdown\n`,
+    };
+  }
+
+  const ttlRaw = values['cache-ttl'];
+  const cacheTtlMinutes = Number(ttlRaw);
+  if (!Number.isInteger(cacheTtlMinutes) || cacheTtlMinutes <= 0) {
+    return {
+      exitCode: 1,
+      stdout: '',
+      stderr: `Invalid --cache-ttl: ${ttlRaw} (expected positive integer minutes)\n`,
     };
   }
 
@@ -91,12 +117,14 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     peer: values.peer,
     optional: values.optional,
     cache: values.cache,
+    cacheTtlMinutes,
     ignoredScopes: values['ignore-scope'],
+    quiet: values.quiet,
   };
 
   try {
     const report = await runAnalysis(options);
-    let out = render(report, options.format);
+    let out = render(report, options.format, { quiet: options.quiet });
     if (options.format !== 'json' && report.skipped.length > 0) {
       out += '\n\n' + skippedSummary(report);
     }
@@ -120,10 +148,14 @@ function skippedSummary(report: AnalysisReport): string {
   );
 }
 
-function render(report: AnalysisReport, format: OutputFormat): string {
+interface RenderOptions {
+  quiet: boolean;
+}
+
+function render(report: AnalysisReport, format: OutputFormat, opts: RenderOptions): string {
   if (format === 'json') return formatJson(report);
-  if (format === 'markdown') return formatMarkdown(report);
-  return formatTable(report);
+  if (format === 'markdown') return formatMarkdown(report, { quiet: opts.quiet });
+  return formatTable(report, { quiet: opts.quiet });
 }
 
 function isOutputFormat(value: string): value is OutputFormat {

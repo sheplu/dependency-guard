@@ -51,7 +51,9 @@ export interface CliOptions {
   peer: boolean;
   optional: boolean;
   cache: boolean;
+  cacheTtlMinutes: number;
   ignoredScopes: string[];
+  quiet: boolean;
 }
 
 export interface RegistryPackageMetadata {
