@@ -21,6 +21,8 @@ Options:
       --peer                 Only check peer dependencies
       --optional             Only check optional dependencies
       --ignore-scope <scope> Skip packages in this scope (repeatable, e.g. @mycompany)
+      --only <names>         Analyze only these packages (comma-separated or
+                             repeatable, e.g. --only express,react)
       --no-cache             Disable caching of registry responses
       --cache-clear          Clear the registry cache directory and exit
       --cache-ttl <minutes>  Cache TTL in minutes (default: 60)
@@ -59,6 +61,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
         'max-age': { type: 'string' },
         sort: { type: 'string' },
         'ignore-scope': { type: 'string', multiple: true, default: [] },
+        only: { type: 'string', multiple: true, default: [] },
         quiet: { type: 'boolean', short: 'q', default: false },
         help: { type: 'boolean', short: 'h', default: false },
         version: { type: 'boolean', short: 'v', default: false },
@@ -88,6 +91,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     'max-age'?: string;
     sort?: string;
     'ignore-scope': string[];
+    only: string[];
     quiet: boolean;
     help: boolean;
     version: boolean;
@@ -170,6 +174,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     cache: values.cache,
     cacheTtlMinutes,
     ignoredScopes: values['ignore-scope'],
+    onlyNames: flattenCsv(values.only),
     quiet: values.quiet,
     failOnLevel,
     maxAgeDays,
@@ -183,6 +188,20 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
       out += '\n\n' + skippedSummary(report);
     }
 
+    let extraStderr = '';
+    if (options.onlyNames.length > 0) {
+      const analyzed = new Set(report.dependencies.map((d) => d.name));
+      const unmatched = options.onlyNames.filter((n) => !analyzed.has(n));
+      if (unmatched.length > 0) {
+        const useColor = Boolean(process.stderr.isTTY);
+        extraStderr += colorize(
+          `Warning: --only includes name(s) not found in package.json: ${unmatched.join(', ')}`,
+          'yellow',
+          useColor,
+        ) + '\n';
+      }
+    }
+
     const policy = evaluatePolicy(report, {
       failOnLevel: options.failOnLevel,
       maxAgeDays: options.maxAgeDays,
@@ -191,11 +210,11 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
       return {
         exitCode: 2,
         stdout: out + '\n',
-        stderr: `Policy check failed:\n${policy.reasons.map((r) => `  - ${r}`).join('\n')}\n`,
+        stderr: extraStderr + `Policy check failed:\n${policy.reasons.map((r) => `  - ${r}`).join('\n')}\n`,
       };
     }
 
-    return { exitCode: 0, stdout: out + '\n', stderr: '' };
+    return { exitCode: 0, stdout: out + '\n', stderr: extraStderr };
   } catch (err) {
     return {
       exitCode: 1,
@@ -203,6 +222,10 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
       stderr: `${(err as Error).message}\n`,
     };
   }
+}
+
+function flattenCsv(values: ReadonlyArray<string>): string[] {
+  return values.flatMap((v) => v.split(',').map((s) => s.trim()).filter(Boolean));
 }
 
 function isFailOnLevel(value: string): value is FailOnLevel {

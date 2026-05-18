@@ -106,6 +106,11 @@ describe('cli.run', () => {
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /Invalid --sort/);
   });
+
+  it('lists --only in help text', async () => {
+    const result = await run(['--help']);
+    assert.match(result.stdout, /--only <names>/);
+  });
 });
 
 describe('cli.run --cache-clear', () => {

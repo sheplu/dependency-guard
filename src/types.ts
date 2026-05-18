@@ -57,6 +57,7 @@ export interface CliOptions {
   cache: boolean;
   cacheTtlMinutes: number;
   ignoredScopes: string[];
+  onlyNames: string[];
   quiet: boolean;
   failOnLevel: FailOnLevel | null;
   maxAgeDays: number | null;
