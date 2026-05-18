@@ -216,13 +216,19 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     ) + '\n';
   }
 
-  let lockfilesPresent = { npm: false, yarn: false };
+  let lockfilesPresent = { npm: false, pnpm: false, yarn: false };
   if (options.includeTransitive) {
     lockfilesPresent = await detectLockfiles(dirname(options.path));
-    if (lockfilesPresent.npm && lockfilesPresent.yarn) {
+    const found: string[] = [];
+    if (lockfilesPresent.npm) found.push('package-lock.json');
+    if (lockfilesPresent.pnpm) found.push('pnpm-lock.yaml');
+    if (lockfilesPresent.yarn) found.push('yarn.lock');
+    if (found.length > 1) {
+      const winner = found[0];
+      const ignored = found.slice(1).join(', ');
       const useColor = Boolean(process.stderr.isTTY);
       extraStderr += colorize(
-        'Warning: both package-lock.json and yarn.lock found; using package-lock.json.',
+        `Warning: multiple lockfiles found (${found.join(', ')}); using ${winner}, ignoring ${ignored}.`,
         'yellow',
         useColor,
       ) + '\n';
@@ -252,11 +258,12 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     if (
       options.includeTransitive &&
       !lockfilesPresent.npm &&
+      !lockfilesPresent.pnpm &&
       !lockfilesPresent.yarn
     ) {
       const useColor = Boolean(process.stderr.isTTY);
       extraStderr += colorize(
-        'Warning: --include-transitive set, but no lockfile was found (expected package-lock.json or yarn.lock).',
+        'Warning: --include-transitive set, but no lockfile was found (expected package-lock.json, pnpm-lock.yaml, or yarn.lock).',
         'yellow',
         useColor,
       ) + '\n';

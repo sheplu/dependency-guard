@@ -799,7 +799,7 @@ describe('CLI integration', () => {
       );
       assert.equal(result.exitCode, 0, result.stderr);
       assert.match(result.stderr, /Warning: --include-transitive set, but no lockfile was found/);
-      assert.match(result.stderr, /package-lock\.json or yarn\.lock/);
+      assert.match(result.stderr, /package-lock\.json, pnpm-lock\.yaml, or yarn\.lock/);
     });
   });
 
@@ -903,7 +903,7 @@ describe('CLI integration', () => {
         assert.equal(result.exitCode, 0, result.stderr);
         assert.match(
           result.stderr,
-          /Warning: both package-lock\.json and yarn\.lock found; using package-lock\.json\./,
+          /Warning: multiple lockfiles found \(package-lock\.json, yarn\.lock\); using package-lock\.json, ignoring yarn\.lock\./,
         );
         const report = JSON.parse(result.stdout);
         const names = report.dependencies.map((d: { name: string }) => d.name).toSorted();
@@ -1078,6 +1078,306 @@ describe('CLI integration', () => {
       assert.equal(result.exitCode, 2);
       assert.match(result.stderr, /--fail-on major/);
       assert.match(result.stderr, /express@4\.18\.2/);
+    });
+  });
+
+  describe('with pnpm-lock.yaml', () => {
+    let pnpmProject: TmpProject;
+
+    beforeEach(async () => {
+      pnpmProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-pnpm',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        pnpmLock: `lockfileVersion: '9.0'
+
+packages:
+
+  express@4.18.2:
+    resolution: {integrity: sha512-x}
+    dependencies:
+      lodash: 4.17.21
+
+  lodash@4.17.21:
+    resolution: {integrity: sha512-y}
+`,
+      });
+    });
+
+    afterEach(async () => {
+      await pnpmProject.cleanup();
+    });
+
+    it('--include-transitive walks pnpm-lock.yaml when no other lockfile is present', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          pnpmProject.packageJsonPath,
+          '--format',
+          'json',
+          '--include-transitive',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const report = JSON.parse(result.stdout);
+      const names = report.dependencies.map((d: { name: string }) => d.name).toSorted();
+      assert.deepEqual(names, ['express', 'lodash']);
+      const lodash = report.dependencies.find((d: { name: string }) => d.name === 'lodash');
+      assert.equal(lodash.transitive, true);
+    });
+
+    it('renders ↳ prefix for pnpm-sourced transitives in table format', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          pnpmProject.packageJsonPath,
+          '--format',
+          'table',
+          '--include-transitive',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /↳ lodash/);
+    });
+
+    it('three-way conflict warning lists all and uses npm', async () => {
+      const allThreeProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-all-three',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        packageLock: {
+          lockfileVersion: 3,
+          packages: {
+            'node_modules/express': {
+              version: '4.18.2',
+              dependencies: { lodash: '4.17.21' },
+            },
+            'node_modules/lodash': { version: '4.17.21' },
+          },
+        },
+        pnpmLock: `lockfileVersion: '9.0'
+
+packages:
+
+  express@4.18.2:
+    resolution: {integrity: sha512-x}
+    dependencies:
+      typescript: 5.0.0
+
+  typescript@5.0.0:
+    resolution: {integrity: sha512-y}
+`,
+        yarnLock: `__metadata:
+  version: 8
+
+"express@npm:^4.18.0":
+  version: 4.18.2
+  resolution: "express@npm:4.18.2"
+  dependencies:
+    yarn-only-child: "npm:1.0.0"
+`,
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            allThreeProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(
+          result.stderr,
+          /Warning: multiple lockfiles found \(package-lock\.json, pnpm-lock\.yaml, yarn\.lock\); using package-lock\.json, ignoring pnpm-lock\.yaml, yarn\.lock\./,
+        );
+        const report = JSON.parse(result.stdout);
+        const names = report.dependencies.map((d: { name: string }) => d.name).toSorted();
+        // npm wins: express + lodash. NOT typescript (pnpm) or yarn-only-child (yarn).
+        assert.deepEqual(names, ['express', 'lodash']);
+      } finally {
+        await allThreeProject.cleanup();
+      }
+    });
+
+    it('two-way conflict (pnpm + yarn): pnpm wins', async () => {
+      const pnpmYarnProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-pnpm-yarn',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        pnpmLock: `lockfileVersion: '9.0'
+
+packages:
+
+  express@4.18.2:
+    resolution: {integrity: sha512-x}
+    dependencies:
+      lodash: 4.17.21
+
+  lodash@4.17.21:
+    resolution: {integrity: sha512-y}
+`,
+        yarnLock: `__metadata:
+  version: 8
+
+"express@npm:^4.18.0":
+  version: 4.18.2
+  resolution: "express@npm:4.18.2"
+  dependencies:
+    yarn-only-child: "npm:1.0.0"
+`,
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            pnpmYarnProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(
+          result.stderr,
+          /Warning: multiple lockfiles found \(pnpm-lock\.yaml, yarn\.lock\); using pnpm-lock\.yaml, ignoring yarn\.lock\./,
+        );
+        const report = JSON.parse(result.stdout);
+        const names = report.dependencies.map((d: { name: string }) => d.name).toSorted();
+        // pnpm wins → lodash, not yarn-only-child
+        assert.deepEqual(names, ['express', 'lodash']);
+      } finally {
+        await pnpmYarnProject.cleanup();
+      }
+    });
+
+    it('falls back gracefully when pnpm-lock.yaml is malformed (treated as no lockfile)', async () => {
+      const malformedProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-malformed-pnpm',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        // Missing lockfileVersion → loadPnpmLock returns null
+        pnpmLock: 'this is not a valid pnpm-lock.yaml\n',
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            malformedProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        // Only the direct dep; no crash from the parser
+        assert.equal(report.dependencies.length, 1);
+        assert.equal(report.dependencies[0].name, 'express');
+      } finally {
+        await malformedProject.cleanup();
+      }
+    });
+
+    it('two-way conflict (npm + pnpm): npm wins', async () => {
+      const npmPnpmProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-npm-pnpm',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        // npm lock says express has lodash as a child
+        packageLock: {
+          lockfileVersion: 3,
+          packages: {
+            'node_modules/express': {
+              version: '4.18.2',
+              dependencies: { lodash: '4.17.21' },
+            },
+            'node_modules/lodash': { version: '4.17.21' },
+          },
+        },
+        // pnpm lock would have a different child — should be ignored
+        pnpmLock: `lockfileVersion: '9.0'
+
+packages:
+
+  express@4.18.2:
+    resolution: {integrity: sha512-x}
+    dependencies:
+      typescript: 5.0.0
+
+  typescript@5.0.0:
+    resolution: {integrity: sha512-y}
+`,
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            npmPnpmProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(
+          result.stderr,
+          /Warning: multiple lockfiles found \(package-lock\.json, pnpm-lock\.yaml\); using package-lock\.json, ignoring pnpm-lock\.yaml\./,
+        );
+        const report = JSON.parse(result.stdout);
+        const names = report.dependencies.map((d: { name: string }) => d.name).toSorted();
+        // npm wins: lodash, NOT typescript
+        assert.deepEqual(names, ['express', 'lodash']);
+      } finally {
+        await npmPnpmProject.cleanup();
+      }
+    });
+
+    it('--include-transitive + --fail-on major exits 2 with a pnpm fixture', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          pnpmProject.packageJsonPath,
+          '--format',
+          'json',
+          '--include-transitive',
+          '--fail-on',
+          'major',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      // express 4.18.2 → registry mock has 5.0.1 → major upgrade → exit 2
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /--fail-on major/);
     });
   });
 });
