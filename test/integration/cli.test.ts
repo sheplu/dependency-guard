@@ -174,4 +174,87 @@ describe('CLI integration', () => {
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /Invalid --format/);
   });
+
+  describe('with --ignore-scope', () => {
+    let privateProject: TmpProject;
+
+    beforeEach(async () => {
+      privateProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-private',
+          version: '1.0.0',
+          dependencies: {
+            '@private/foo': '1.0.0',
+            express: '^4.18.0',
+          },
+        },
+        installed: {
+          '@private/foo': '1.0.0',
+          express: '4.18.2',
+        },
+      });
+    });
+
+    afterEach(async () => {
+      await privateProject.cleanup();
+    });
+
+    it('skips ignored scopes and reports them in JSON', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          privateProject.packageJsonPath,
+          '--format',
+          'json',
+          '--ignore-scope',
+          '@private',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const report = JSON.parse(result.stdout);
+      assert.equal(report.dependencies.length, 1);
+      assert.equal(report.dependencies[0].name, 'express');
+      assert.deepEqual(report.skipped, [
+        { name: '@private/foo', type: 'dependencies', scope: '@private' },
+      ]);
+    });
+
+    it('appends a one-liner to stdout in table format', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          privateProject.packageJsonPath,
+          '--format',
+          'table',
+          '--ignore-scope',
+          '@private',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /Skipped 1 package\(s\) from ignored scope\(s\): @private/);
+    });
+
+    it('does not append the one-liner in JSON format (output stays parseable)', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          privateProject.packageJsonPath,
+          '--format',
+          'json',
+          '--ignore-scope',
+          '@private',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      // JSON.parse succeeds = no extra trailing line
+      const parsed = JSON.parse(result.stdout);
+      assert.equal(typeof parsed.summary, 'object');
+      assert.doesNotMatch(result.stdout, /Skipped/);
+    });
+  });
 });

@@ -26,4 +26,9 @@ describe('cli.run', () => {
     assert.equal(result.exitCode, 0);
     assert.match(result.stdout, /^\d+\.\d+\.\d+/);
   });
+
+  it('lists --ignore-scope in help text', async () => {
+    const result = await run(['--help']);
+    assert.match(result.stdout, /--ignore-scope/);
+  });
 });

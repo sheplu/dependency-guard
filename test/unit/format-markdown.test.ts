@@ -19,6 +19,7 @@ describe('formatMarkdown', () => {
           updateType: 'major',
         },
       ],
+      skipped: [],
     };
     const out = formatMarkdown(report);
     assert.match(out, /## Dependency Report/);
@@ -41,6 +42,7 @@ describe('formatMarkdown', () => {
           updateType: 'up-to-date',
         },
       ],
+      skipped: [],
     };
     const out = formatMarkdown(report);
     assert.match(out, /\| lodash \| prod \| 4\.17\.21 \| - \| - \| 2y \| 2y \| ✓ Up to date \|/);

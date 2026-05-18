@@ -31,9 +31,16 @@ export interface AnalysisSummary {
   majorUpdates: number;
 }
 
+export interface SkippedDependency {
+  name: string;
+  type: DependencyType;
+  scope: string;
+}
+
 export interface AnalysisReport {
   summary: AnalysisSummary;
   dependencies: DependencyAnalysis[];
+  skipped: SkippedDependency[];
 }
 
 export interface CliOptions {
@@ -44,6 +51,7 @@ export interface CliOptions {
   peer: boolean;
   optional: boolean;
   cache: boolean;
+  ignoredScopes: string[];
 }
 
 export interface RegistryPackageMetadata {
