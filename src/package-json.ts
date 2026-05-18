@@ -66,9 +66,19 @@ export async function collectDependencies(
       });
     }
   }
-  entries.sort((a, b) => a.name.localeCompare(b.name));
+  entries.sort((a, b) => {
+    const typeDiff = TYPE_ORDER[a.type] - TYPE_ORDER[b.type];
+    return typeDiff !== 0 ? typeDiff : a.name.localeCompare(b.name);
+  });
   return entries;
 }
+
+const TYPE_ORDER: Record<DependencyType, number> = {
+  dependencies: 0,
+  devDependencies: 1,
+  peerDependencies: 2,
+  optionalDependencies: 3,
+};
 
 function pickBuckets(
   pkg: PackageJson,
