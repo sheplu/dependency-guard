@@ -95,6 +95,17 @@ describe('cli.run', () => {
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /Invalid --max-age/);
   });
+
+  it('lists --sort in help text', async () => {
+    const result = await run(['--help']);
+    assert.match(result.stdout, /--sort <field>/);
+  });
+
+  it('rejects --sort with an unknown field', async () => {
+    const result = await run(['--sort', 'foo']);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Invalid --sort/);
+  });
 });
 
 describe('cli.run --cache-clear', () => {

@@ -6,7 +6,7 @@ import { formatMarkdown } from './format/markdown.ts';
 import { formatTable } from './format/table.ts';
 import { colorize } from './format/shared.ts';
 import { evaluatePolicy } from './policy.ts';
-import type { AnalysisReport, CliOptions, FailOnLevel, OutputFormat } from './types.ts';
+import type { AnalysisReport, CliOptions, FailOnLevel, OutputFormat, SortField } from './types.ts';
 
 const HELP = `Usage: dependency-guard [options]
 
@@ -27,6 +27,7 @@ Options:
       --fail-on <level>      Exit 2 if any dependency needs an upgrade at this level
                              (major | minor | any)
       --max-age <days>       Exit 2 if any installed version is older than N days
+      --sort <field>         Sort by age, status, or name (default: type then name)
   -h, --help                 Show help
   -v, --version              Show version number
 `;
@@ -56,6 +57,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
         'cache-ttl': { type: 'string', default: '60' },
         'fail-on': { type: 'string' },
         'max-age': { type: 'string' },
+        sort: { type: 'string' },
         'ignore-scope': { type: 'string', multiple: true, default: [] },
         quiet: { type: 'boolean', short: 'q', default: false },
         help: { type: 'boolean', short: 'h', default: false },
@@ -84,6 +86,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     'cache-ttl': string;
     'fail-on'?: string;
     'max-age'?: string;
+    sort?: string;
     'ignore-scope': string[];
     quiet: boolean;
     help: boolean;
@@ -144,6 +147,19 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     maxAgeDays = parsedAge;
   }
 
+  const sortRaw = values.sort;
+  let sortBy: SortField | null = null;
+  if (sortRaw !== undefined) {
+    if (!isSortField(sortRaw)) {
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr: `Invalid --sort: ${sortRaw} (expected one of: age, status, name)\n`,
+      };
+    }
+    sortBy = sortRaw;
+  }
+
   const options: CliOptions = {
     path: values.path,
     format: values.format,
@@ -157,6 +173,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     quiet: values.quiet,
     failOnLevel,
     maxAgeDays,
+    sortBy,
   };
 
   try {
@@ -190,6 +207,10 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
 
 function isFailOnLevel(value: string): value is FailOnLevel {
   return value === 'major' || value === 'minor' || value === 'any';
+}
+
+function isSortField(value: string): value is SortField {
+  return value === 'age' || value === 'status' || value === 'name';
 }
 
 function skippedSummary(report: AnalysisReport): string {

@@ -7,6 +7,8 @@ import type {
   CliOptions,
   DependencyAnalysis,
   SkippedDependency,
+  SortField,
+  UpdateType,
 } from './types.ts';
 
 export interface AnalyzeRunDeps {
@@ -54,7 +56,8 @@ export async function runAnalysis(
     }
   }
 
-  return { summary: summarize(analyses), dependencies: analyses, skipped };
+  const dependencies = options.sortBy !== null ? sortAnalyses(analyses, options.sortBy) : analyses;
+  return { summary: summarize(analyses), dependencies, skipped };
 }
 
 function matchScope(name: string, ignored: ReadonlyArray<string>): string | null {
@@ -62,4 +65,31 @@ function matchScope(name: string, ignored: ReadonlyArray<string>): string | null
     if (name.startsWith(scope + '/')) return scope;
   }
   return null;
+}
+
+const STATUS_ORDER: Record<UpdateType, number> = {
+  major: 0,
+  minor: 1,
+  'up-to-date': 2,
+};
+
+function sortAnalyses(deps: DependencyAnalysis[], field: SortField): DependencyAnalysis[] {
+  const sorted = [...deps];
+  sorted.sort((a, b) => {
+    const primary = compareBy(a, b, field);
+    return primary !== 0 ? primary : a.name.localeCompare(b.name);
+  });
+  return sorted;
+}
+
+function compareBy(a: DependencyAnalysis, b: DependencyAnalysis, field: SortField): number {
+  if (field === 'name') return 0;
+  if (field === 'status') return STATUS_ORDER[a.updateType] - STATUS_ORDER[b.updateType];
+  // 'age': oldest first; null sorts to bottom
+  const aAge = a.ageInDays;
+  const bAge = b.ageInDays;
+  if (aAge === null && bAge === null) return 0;
+  if (aAge === null) return 1;
+  if (bAge === null) return -1;
+  return bAge - aAge;
 }
