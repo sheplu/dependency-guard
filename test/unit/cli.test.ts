@@ -101,6 +101,11 @@ describe('cli.run', () => {
     assert.match(result.stderr, /Invalid --registry/);
   });
 
+  it('lists --include-transitive in help text', async () => {
+    const result = await run(['--help']);
+    assert.match(result.stdout, /--include-transitive/);
+  });
+
   it('rejects --max-age with non-integer value', async () => {
     const result = await run(['--max-age', 'abc']);
     assert.equal(result.exitCode, 1);

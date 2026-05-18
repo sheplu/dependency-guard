@@ -14,6 +14,7 @@ function dep(overrides: Partial<DependencyAnalysis>): DependencyAnalysis {
     latestAgeInDays: 30,
     updateType: 'up-to-date',
     deprecated: null,
+    transitive: false,
     ...overrides,
   };
 }

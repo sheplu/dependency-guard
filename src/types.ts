@@ -27,6 +27,7 @@ export interface DependencyAnalysis {
   latestAgeInDays: number | null;
   updateType: UpdateType;
   deprecated: string | null;
+  transitive: boolean;
 }
 
 export interface AnalysisSummary {
@@ -64,6 +65,7 @@ export interface CliOptions {
   maxAgeDays: number | null;
   sortBy: SortField | null;
   registryUrl: string | null;
+  includeTransitive: boolean;
 }
 
 export interface RegistryPackageMetadata {

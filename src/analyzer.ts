@@ -37,6 +37,7 @@ export function analyzeDependency({ entry, metadata, now }: AnalyzeArgs): Depend
       latestAgeInDays: currentAge,
       updateType: 'up-to-date',
       deprecated,
+      transitive: entry.transitive,
     };
   }
 
@@ -57,6 +58,7 @@ export function analyzeDependency({ entry, metadata, now }: AnalyzeArgs): Depend
     latestAgeInDays: ageInDays(metadata.time[latestMajorVersion.raw] ?? null, now),
     updateType,
     deprecated,
+    transitive: entry.transitive,
   };
 }
 

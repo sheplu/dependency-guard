@@ -49,6 +49,7 @@ describe('runAnalysis', () => {
             maxAgeDays: null,
             sortBy: null,
             registryUrl: null,
+            includeTransitive: false,
             onlyNames: [],
           },
           { registry, cache },
@@ -89,6 +90,7 @@ describe('runAnalysis', () => {
             maxAgeDays: null,
             sortBy: null,
             registryUrl: null,
+            includeTransitive: false,
             onlyNames: [],
           },
           { registry, cache },
@@ -136,6 +138,7 @@ describe('runAnalysis', () => {
         maxAgeDays: null,
         sortBy: null,
             registryUrl: null,
+            includeTransitive: false,
         onlyNames: [],
       },
       { registry, cache },
@@ -191,6 +194,7 @@ describe('runAnalysis', () => {
         maxAgeDays: null,
         sortBy: null,
             registryUrl: null,
+            includeTransitive: false,
         onlyNames: [],
       },
       { registry, cache },
@@ -237,6 +241,7 @@ describe('runAnalysis', () => {
         maxAgeDays: null,
         sortBy: null,
             registryUrl: null,
+            includeTransitive: false,
         onlyNames: [],
       },
       { registry, cache },
@@ -282,6 +287,7 @@ describe('runAnalysis', () => {
         maxAgeDays: null,
         sortBy: null,
             registryUrl: null,
+            includeTransitive: false,
         onlyNames: [],
       },
       { registry, cache },
@@ -369,6 +375,7 @@ describe('runAnalysis sorting', () => {
       maxAgeDays: null,
       sortBy,
       registryUrl: null,
+            includeTransitive: false,
     };
   }
 
@@ -601,6 +608,7 @@ describe('runAnalysis --only filter', () => {
       maxAgeDays: null,
       sortBy: null,
             registryUrl: null,
+            includeTransitive: false,
       ...overrides,
     };
   }
@@ -680,5 +688,94 @@ describe('runAnalysis --only filter', () => {
     const { cache, registry } = makeRegistry();
     const report = await runAnalysis(makeOptions({ onlyNames: [] }), { registry, cache });
     assert.equal(report.dependencies.length, 2);
+  });
+
+  it('--include-transitive expands the dep graph from package-lock.json', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { express: '1.0.0' } }),
+    );
+    await writeFile(
+      join(dir, 'package-lock.json'),
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/express': {
+            version: '1.0.0',
+            dependencies: { 'body-parser': '1.0.0' },
+          },
+          'node_modules/body-parser': { version: '1.0.0' },
+        },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ includeTransitive: true }),
+      { registry, cache },
+    );
+    assert.equal(report.dependencies.length, 2);
+    const transitiveCount = report.dependencies.filter((d) => d.transitive).length;
+    assert.equal(transitiveCount, 1);
+    const bp = report.dependencies.find((d) => d.name === 'body-parser');
+    assert.equal(bp?.transitive, true);
+  });
+
+  it('--ignore-scope still filters private transitives', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { express: '1.0.0' } }),
+    );
+    await writeFile(
+      join(dir, 'package-lock.json'),
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/express': {
+            version: '1.0.0',
+            dependencies: { '@private/inner': '1.0.0' },
+          },
+          'node_modules/@private/inner': { version: '1.0.0' },
+        },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ includeTransitive: true, ignoredScopes: ['@private'] }),
+      { registry, cache },
+    );
+    assert.equal(report.dependencies.length, 1);
+    assert.equal(report.dependencies[0].name, 'express');
+    assert.equal(report.skipped.length, 1);
+    assert.equal(report.skipped[0].name, '@private/inner');
+  });
+
+  it('--only express --include-transitive includes express subgraph', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { express: '1.0.0', lodash: '1.0.0' },
+      }),
+    );
+    await writeFile(
+      join(dir, 'package-lock.json'),
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/express': {
+            version: '1.0.0',
+            dependencies: { 'body-parser': '1.0.0' },
+          },
+          'node_modules/lodash': { version: '1.0.0' },
+          'node_modules/body-parser': { version: '1.0.0' },
+        },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ includeTransitive: true, onlyNames: ['express'] }),
+      { registry, cache },
+    );
+    const names = report.dependencies.map((d) => d.name).toSorted();
+    assert.deepEqual(names, ['body-parser', 'express']);
   });
 });
