@@ -306,6 +306,74 @@ describe('CLI integration', () => {
     }
   });
 
+  it('--sort status orders major → minor → up-to-date', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--sort',
+        'status',
+        '--no-cache',
+      ],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.deepEqual(
+      report.dependencies.map((d: { name: string; updateType: string }) => [d.name, d.updateType]),
+      [
+        ['express', 'major'],
+        ['typescript', 'minor'],
+        ['lodash', 'up-to-date'],
+      ],
+    );
+  });
+
+  it('--sort age orders oldest installed first', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--sort',
+        'age',
+        '--no-cache',
+      ],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    // lodash (2024-01-01) → express (2025-09-15) → typescript (2026-01-01)
+    assert.deepEqual(
+      report.dependencies.map((d: { name: string }) => d.name),
+      ['lodash', 'express', 'typescript'],
+    );
+  });
+
+  it('--sort name produces strict alphabetical, ignoring type', async () => {
+    const result = await runCli(
+      [
+        '--path',
+        project.packageJsonPath,
+        '--format',
+        'json',
+        '--sort',
+        'name',
+        '--no-cache',
+      ],
+      { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.deepEqual(
+      report.dependencies.map((d: { name: string }) => d.name),
+      ['express', 'lodash', 'typescript'],
+    );
+  });
+
   describe('with --ignore-scope', () => {
     let privateProject: TmpProject;
 

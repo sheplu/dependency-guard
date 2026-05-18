@@ -10,6 +10,8 @@ export type OutputFormat = 'table' | 'json' | 'markdown';
 
 export type FailOnLevel = 'major' | 'minor' | 'any';
 
+export type SortField = 'age' | 'status' | 'name';
+
 export interface VersionInfo {
   version: string;
   publishedAt: string | null;
@@ -58,6 +60,7 @@ export interface CliOptions {
   quiet: boolean;
   failOnLevel: FailOnLevel | null;
   maxAgeDays: number | null;
+  sortBy: SortField | null;
 }
 
 export interface RegistryPackageMetadata {
