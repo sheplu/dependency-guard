@@ -204,7 +204,7 @@ export function parsePnpmLock(raw: string): PnpmEntry[] {
 
     // 6-space indent: child entries inside dependencies/optionalDependencies.
     if (line.startsWith('      ') && (inDeps || inOptDeps)) {
-      const m = /^\s+("?)([^":]+)\1:\s*(.+?)\s*$/.exec(line);
+      const m = /^\s+(['"]?)([^'":]+)\1:\s*(.+?)\s*$/.exec(line);
       if (!m) continue;
       const value = m[3];
       // Skip flow-style mappings like `resolution: {integrity: ...}`.
