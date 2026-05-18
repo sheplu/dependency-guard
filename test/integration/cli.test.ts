@@ -801,6 +801,55 @@ describe('CLI integration', () => {
       assert.match(result.stderr, /Warning: --include-transitive set, but no lockfile was found/);
       assert.match(result.stderr, /package-lock\.json, pnpm-lock\.yaml, or yarn\.lock/);
     });
+
+    it('renders ↳ prefix for npm-sourced transitives in markdown format', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          lockProject.packageJsonPath,
+          '--format',
+          'markdown',
+          '--include-transitive',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /\| ↳ lodash \|/);
+    });
+
+    it('rejects unsupported npm lockfile versions (v2) and falls back to direct deps only', async () => {
+      const v2Project = await createTmpProject({
+        packageJson: {
+          name: 'fixture-v2-npm',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        // v2 is rejected by loadNpmLock (we require >= v3)
+        packageLock: { lockfileVersion: 2, packages: {} },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            v2Project.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        // Only the direct dep; loader rejects v2 silently
+        assert.equal(report.dependencies.length, 1);
+        assert.equal(report.dependencies[0].name, 'express');
+      } finally {
+        await v2Project.cleanup();
+      }
+    });
   });
 
   describe('with yarn.lock', () => {
@@ -976,6 +1025,127 @@ describe('CLI integration', () => {
       } finally {
         await malformedProject.cleanup();
       }
+    });
+
+    it('--include-transitive + --ignore-scope filters yarn-sourced private transitives', async () => {
+      const yarnPrivateProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-yarn-private',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        yarnLock: `__metadata:
+  version: 8
+
+"express@npm:^4.18.0":
+  version: 4.18.2
+  resolution: "express@npm:4.18.2"
+  dependencies:
+    "@private/inner": "npm:1.0.0"
+
+"@private/inner@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@private/inner@npm:1.0.0"
+`,
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            yarnPrivateProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--ignore-scope',
+            '@private',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        assert.deepEqual(
+          report.dependencies.map((d: { name: string }) => d.name),
+          ['express'],
+        );
+        assert.equal(report.skipped.length, 1);
+        assert.equal(report.skipped[0].name, '@private/inner');
+      } finally {
+        await yarnPrivateProject.cleanup();
+      }
+    });
+
+    it('--include-transitive + --prod walks only prod transitives (yarn)', async () => {
+      const yarnMixedProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-yarn-mixed',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+          devDependencies: { typescript: '^5.2.0' },
+        },
+        installed: { express: '4.18.2', typescript: '5.2.2' },
+        yarnLock: `__metadata:
+  version: 8
+
+"express@npm:^4.18.0":
+  version: 4.18.2
+  resolution: "express@npm:4.18.2"
+
+"typescript@npm:^5.2.0":
+  version: 5.2.2
+  resolution: "typescript@npm:5.2.2"
+  dependencies:
+    lodash: "npm:4.17.21"
+
+"lodash@npm:4.17.21":
+  version: 4.17.21
+  resolution: "lodash@npm:4.17.21"
+`,
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            yarnMixedProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--prod',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        // typescript is dev → dropped → its transitive lodash also dropped
+        assert.deepEqual(
+          report.dependencies.map((d: { name: string }) => d.name),
+          ['express'],
+        );
+      } finally {
+        await yarnMixedProject.cleanup();
+      }
+    });
+
+    it('--include-transitive + --fail-on major exits 2 with a yarn fixture', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          yarnProject.packageJsonPath,
+          '--format',
+          'json',
+          '--include-transitive',
+          '--fail-on',
+          'major',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      // express 4.18.2 → registry has 5.0.1 → major upgrade → exit 2
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /--fail-on major/);
+      assert.match(result.stderr, /express@4\.18\.2/);
     });
   });
 
@@ -1378,6 +1548,120 @@ packages:
       // express 4.18.2 → registry mock has 5.0.1 → major upgrade → exit 2
       assert.equal(result.exitCode, 2);
       assert.match(result.stderr, /--fail-on major/);
+    });
+
+    it('renders ↳ prefix for pnpm-sourced transitives in markdown format', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          pnpmProject.packageJsonPath,
+          '--format',
+          'markdown',
+          '--include-transitive',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /\| ↳ lodash \|/);
+    });
+
+    it('--include-transitive + --ignore-scope filters pnpm-sourced private transitives', async () => {
+      const pnpmPrivateProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-pnpm-private',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+        pnpmLock: `lockfileVersion: '9.0'
+
+packages:
+
+  express@4.18.2:
+    resolution: {integrity: sha512-x}
+    dependencies:
+      '@private/inner': 1.0.0
+
+  '@private/inner@1.0.0':
+    resolution: {integrity: sha512-y}
+`,
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            pnpmPrivateProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--ignore-scope',
+            '@private',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        assert.deepEqual(
+          report.dependencies.map((d: { name: string }) => d.name),
+          ['express'],
+        );
+        assert.equal(report.skipped.length, 1);
+        assert.equal(report.skipped[0].name, '@private/inner');
+      } finally {
+        await pnpmPrivateProject.cleanup();
+      }
+    });
+
+    it('--include-transitive + --prod walks only prod transitives (pnpm)', async () => {
+      const pnpmMixedProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-pnpm-mixed',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+          devDependencies: { typescript: '^5.2.0' },
+        },
+        installed: { express: '4.18.2', typescript: '5.2.2' },
+        pnpmLock: `lockfileVersion: '9.0'
+
+packages:
+
+  express@4.18.2:
+    resolution: {integrity: sha512-x}
+
+  typescript@5.2.2:
+    resolution: {integrity: sha512-y}
+    dependencies:
+      lodash: 4.17.21
+
+  lodash@4.17.21:
+    resolution: {integrity: sha512-z}
+`,
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            pnpmMixedProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--prod',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        // typescript is dev → dropped → its transitive lodash also dropped
+        assert.deepEqual(
+          report.dependencies.map((d: { name: string }) => d.name),
+          ['express'],
+        );
+      } finally {
+        await pnpmMixedProject.cleanup();
+      }
     });
   });
 });
