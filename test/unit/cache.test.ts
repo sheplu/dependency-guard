@@ -46,4 +46,30 @@ describe('Cache', () => {
     const cache = new Cache({ dir });
     assert.match(cache.fileFor('@scope/pkg'), /_scope_pkg\.json$/);
   });
+
+  it('clear() removes the cache directory', async () => {
+    const cache = new Cache({ dir });
+    await cache.set('pkg', { hello: 'world' });
+    await cache.clear();
+    assert.equal(await cache.get('pkg'), null);
+  });
+
+  it('clear() is a no-op when the directory does not exist', async () => {
+    const missing = join(dir, 'nope');
+    const cache = new Cache({ dir: missing });
+    await cache.clear();
+    assert.equal(await cache.get('anything'), null);
+  });
+
+  it('honors DEPENDENCY_GUARD_CACHE_DIR when no dir option is given', () => {
+    const original = process.env.DEPENDENCY_GUARD_CACHE_DIR;
+    process.env.DEPENDENCY_GUARD_CACHE_DIR = '/tmp/from-env';
+    try {
+      const cache = new Cache();
+      assert.equal(cache.dir, '/tmp/from-env');
+    } finally {
+      if (original === undefined) delete process.env.DEPENDENCY_GUARD_CACHE_DIR;
+      else process.env.DEPENDENCY_GUARD_CACHE_DIR = original;
+    }
+  });
 });

@@ -19,7 +19,10 @@ export async function runAnalysis(
   options: CliOptions,
   deps: AnalyzeRunDeps = {},
 ): Promise<AnalysisReport> {
-  const cache = deps.cache ?? new Cache({ enabled: options.cache });
+  const cache = deps.cache ?? new Cache({
+    enabled: options.cache,
+    ttlMs: options.cacheTtlMinutes * 60_000,
+  });
   const registry = deps.registry ?? new RegistryClient({ cache });
 
   const entries = await collectDependencies(options.path, {
