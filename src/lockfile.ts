@@ -12,19 +12,22 @@ export async function expandWithLockfile(
   projectDir: string,
 ): Promise<DependencyEntry[]> {
   const graph =
-    (await loadNpmLock(projectDir)) ?? (await loadYarnLock(projectDir));
+    (await loadNpmLock(projectDir)) ??
+    (await loadPnpmLock(projectDir)) ??
+    (await loadYarnLock(projectDir));
   if (!graph) return [...direct];
   return walk(direct, graph);
 }
 
 export async function detectLockfiles(
   projectDir: string,
-): Promise<{ npm: boolean; yarn: boolean }> {
-  const [npm, yarn] = await Promise.all([
+): Promise<{ npm: boolean; pnpm: boolean; yarn: boolean }> {
+  const [npm, pnpm, yarn] = await Promise.all([
     fileExists(join(projectDir, 'package-lock.json')),
+    fileExists(join(projectDir, 'pnpm-lock.yaml')),
     fileExists(join(projectDir, 'yarn.lock')),
   ]);
-  return { npm, yarn };
+  return { npm, pnpm, yarn };
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -112,6 +115,121 @@ async function loadNpmLock(projectDir: string): Promise<LockGraph | null> {
       };
     },
   };
+}
+
+// ---------- pnpm-lock.yaml (lockfileVersion 6+, pnpm 7/8/9/10) ----------
+
+interface PnpmEntry {
+  name: string;
+  version: string;
+  childNames: string[];
+}
+
+async function loadPnpmLock(projectDir: string): Promise<LockGraph | null> {
+  let raw: string;
+  try {
+    raw = await readFile(join(projectDir, 'pnpm-lock.yaml'), 'utf8');
+  } catch {
+    return null;
+  }
+  // Quick version gate: lockfileVersion 6.x or higher.
+  const versionMatch = /^lockfileVersion:\s*['"]?(\d+)\.\d+['"]?/m.exec(raw);
+  if (!versionMatch || Number(versionMatch[1]) < 6) return null;
+
+  const entries = parsePnpmLock(raw);
+  if (entries.length === 0) return null;
+
+  const byName = new Map<string, PnpmEntry>();
+  for (const entry of entries) {
+    if (!byName.has(entry.name)) byName.set(entry.name, entry);
+  }
+
+  return {
+    resolve(name) {
+      const entry = byName.get(name);
+      if (!entry) return null;
+      return { version: entry.version, childNames: entry.childNames };
+    },
+  };
+}
+
+export function parsePnpmLock(raw: string): PnpmEntry[] {
+  const lines = raw.split('\n');
+  const entries: PnpmEntry[] = [];
+  let inPackages = false;
+  let current: PnpmEntry | null = null;
+  let inDeps = false;
+  let inOptDeps = false;
+
+  for (const line of lines) {
+    if (line.length === 0) continue;
+    if (line.trimStart().startsWith('#')) continue;
+
+    // Top-level key (col 0, ends with ':')
+    if (!line.startsWith(' ') && line.endsWith(':')) {
+      finalizePnpm(current, entries);
+      current = null;
+      inDeps = false;
+      inOptDeps = false;
+      inPackages = line === 'packages:';
+      continue;
+    }
+
+    if (!inPackages) continue;
+
+    // 2-space indent: a package key. e.g. "  express@4.18.2:" or "  '@types/node@20.5.1':"
+    if (line.startsWith('  ') && !line.startsWith('    ')) {
+      const trimmed = line.trim();
+      if (!trimmed.endsWith(':')) continue;
+      const headerRaw = trimmed.slice(0, -1);
+      const parsed = parsePnpmKey(headerRaw);
+      finalizePnpm(current, entries);
+      current = parsed
+        ? { name: parsed.name, version: parsed.version, childNames: [] }
+        : null;
+      inDeps = false;
+      inOptDeps = false;
+      continue;
+    }
+
+    if (!current) continue;
+
+    // 4-space indent: keys of the package (dependencies, optionalDependencies, etc).
+    if (line.startsWith('    ') && !line.startsWith('      ')) {
+      const trimmed = line.trim();
+      inDeps = trimmed === 'dependencies:';
+      inOptDeps = trimmed === 'optionalDependencies:';
+      continue;
+    }
+
+    // 6-space indent: child entries inside dependencies/optionalDependencies.
+    if (line.startsWith('      ') && (inDeps || inOptDeps)) {
+      const m = /^\s+("?)([^":]+)\1:\s*(.+?)\s*$/.exec(line);
+      if (!m) continue;
+      const value = m[3];
+      // Skip flow-style mappings like `resolution: {integrity: ...}`.
+      if (value.startsWith('{')) continue;
+      current.childNames.push(m[2]);
+    }
+  }
+  finalizePnpm(current, entries);
+  return entries;
+}
+
+function finalizePnpm(entry: PnpmEntry | null, out: PnpmEntry[]): void {
+  if (entry && entry.version !== '') out.push(entry);
+}
+
+function parsePnpmKey(headerRaw: string): { name: string; version: string } | null {
+  const stripped = headerRaw.replace(/^'|'$/g, '');
+  // Strip trailing peer-resolution suffix `(react@18.2.0)` etc.
+  const noSuffix = stripped.replace(/\(.+\)$/, '');
+  // Split on the LAST `@` so scoped names work: `@scope/name@1.2.3` → ["@scope/name", "1.2.3"]
+  const at = noSuffix.lastIndexOf('@');
+  if (at <= 0) return null;
+  const version = noSuffix.slice(at + 1);
+  if (version === '') return null;
+  return { name: noSuffix.slice(0, at), version };
 }
 
 // ---------- yarn.lock (Yarn Berry, lockfileVersion 6+) ----------

@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { detectLockfiles, expandWithLockfile, parseYarnLock } from '../../src/lockfile.ts';
+import { detectLockfiles, expandWithLockfile, parsePnpmLock, parseYarnLock } from '../../src/lockfile.ts';
 import type { DependencyEntry } from '../../src/package-json.ts';
 
 const directExpress: DependencyEntry = {
@@ -470,6 +470,316 @@ describe('expandWithLockfile (yarn)', () => {
   });
 });
 
+const PNPM_FIXTURE = `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+
+importers:
+  .:
+    dependencies:
+      express:
+        specifier: ^4.18.0
+        version: 4.18.2
+
+packages:
+
+  express@4.18.2:
+    resolution: {integrity: sha512-x}
+    dependencies:
+      body-parser: 1.20.0
+      qs: 6.10.3
+
+  body-parser@1.20.0:
+    resolution: {integrity: sha512-y}
+    dependencies:
+      qs: 6.10.3
+    optionalDependencies:
+      iconv-lite: 0.4.24
+    peerDependencies:
+      should-be-ignored: '*'
+
+  qs@6.10.3:
+    resolution: {integrity: sha512-z}
+
+  '@types/node@20.5.1':
+    resolution: {integrity: sha512-q}
+
+  'foo@1.0.0(react@18.2.0)':
+    resolution: {integrity: sha512-r}
+`;
+
+describe('parsePnpmLock', () => {
+  it('parses a multi-package fixture', () => {
+    const entries = parsePnpmLock(PNPM_FIXTURE);
+    const names = entries.map((e) => e.name);
+    assert.ok(names.includes('express'));
+    assert.ok(names.includes('body-parser'));
+    assert.ok(names.includes('qs'));
+    const express = entries.find((e) => e.name === 'express');
+    assert.equal(express?.version, '4.18.2');
+    assert.deepEqual(express?.childNames, ['body-parser', 'qs']);
+  });
+
+  it('walks dependencies + optionalDependencies but skips peerDependencies', () => {
+    const entries = parsePnpmLock(PNPM_FIXTURE);
+    const bp = entries.find((e) => e.name === 'body-parser');
+    assert.deepEqual(bp?.childNames, ['qs', 'iconv-lite']);
+    assert.ok(!bp?.childNames.includes('should-be-ignored'));
+  });
+
+  it('handles scoped names with quotes', () => {
+    const entries = parsePnpmLock(PNPM_FIXTURE);
+    const types = entries.find((e) => e.name === '@types/node');
+    assert.equal(types?.version, '20.5.1');
+  });
+
+  it('strips peer-resolution suffix from keys', () => {
+    const entries = parsePnpmLock(PNPM_FIXTURE);
+    const foo = entries.find((e) => e.name === 'foo');
+    assert.equal(foo?.version, '1.0.0');
+  });
+
+  it('returns empty array for empty input', () => {
+    assert.deepEqual(parsePnpmLock(''), []);
+  });
+
+  it('returns empty array when no packages: block exists', () => {
+    assert.deepEqual(
+      parsePnpmLock(`lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      express: 4.18.2
+`),
+      [],
+    );
+  });
+
+  it('skips comments and stray top-level keys before packages:', () => {
+    const entries = parsePnpmLock(`# top comment
+
+settings:
+  autoInstallPeers: true
+
+packages:
+
+  foo@1.0.0:
+    resolution: {integrity: sha512-x}
+`);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].name, 'foo');
+  });
+
+  it('drops malformed package keys (no @)', () => {
+    const entries = parsePnpmLock(`packages:
+
+  weird:
+    resolution: {integrity: sha512-x}
+
+  express@4.18.2:
+    resolution: {integrity: sha512-y}
+`);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].name, 'express');
+  });
+
+  it('drops package keys with empty version (e.g. "name@")', () => {
+    const entries = parsePnpmLock(`packages:
+
+  broken@:
+    resolution: {integrity: sha512-x}
+
+  express@4.18.2:
+    resolution: {integrity: sha512-y}
+`);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].name, 'express');
+  });
+
+  it('skips 2-space-indented lines that do not end with ":"', () => {
+    // Pathological input: a 2-space-indented line that's not a key. We tolerate it.
+    const entries = parsePnpmLock(`packages:
+
+  stray-line-without-colon
+  express@4.18.2:
+    resolution: {integrity: sha512-y}
+`);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].name, 'express');
+  });
+
+  it('skips 6-space-indented child lines that do not match the expected pattern', () => {
+    // Pathological child line — the parser tolerates it without crashing.
+    const entries = parsePnpmLock(`packages:
+
+  app@1.0.0:
+    resolution: {integrity: sha512-x}
+    dependencies:
+      ----not a valid line----
+      real-child: 2.0.0
+`);
+    assert.deepEqual(entries[0].childNames, ['real-child']);
+  });
+
+  it('ignores child entries with flow-style values (e.g. resolution maps)', () => {
+    // Defensive: if for some reason a flow-mapping appears at child indent,
+    // we don't try to interpret it as a child package.
+    const entries = parsePnpmLock(`packages:
+
+  app@1.0.0:
+    resolution: {integrity: sha512-x}
+    dependencies:
+      flow-mapped: {weird: yes}
+      real-child: 2.0.0
+`);
+    assert.deepEqual(entries[0].childNames, ['real-child']);
+  });
+
+  it('ignores 6-space-indent lines outside a deps/optionalDeps block', () => {
+    const entries = parsePnpmLock(`packages:
+
+  app@1.0.0:
+    resolution: {integrity: sha512-x}
+    peerDependencies:
+      ignored-peer: '*'
+    dependencies:
+      real-child: 2.0.0
+`);
+    assert.deepEqual(entries[0].childNames, ['real-child']);
+  });
+});
+
+describe('expandWithLockfile (pnpm)', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'dep-guard-pnpm-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('walks a pnpm-only project', async () => {
+    await writeFile(join(dir, 'pnpm-lock.yaml'), PNPM_FIXTURE);
+    const out = await expandWithLockfile([directExpress], dir);
+    const names = out.map((d) => d.name);
+    assert.ok(names.includes('body-parser'));
+    assert.ok(names.includes('qs'));
+    const bp = out.find((d) => d.name === 'body-parser');
+    assert.equal(bp?.transitive, true);
+    assert.equal(bp?.installedVersion, '1.20.0');
+  });
+
+  it('inherits parent type for pnpm transitives', async () => {
+    await writeFile(join(dir, 'pnpm-lock.yaml'), PNPM_FIXTURE);
+    const directDev: DependencyEntry = {
+      name: 'express',
+      type: 'devDependencies',
+      spec: '^4.18.0',
+      installedVersion: '4.18.2',
+      transitive: false,
+    };
+    const out = await expandWithLockfile([directDev], dir);
+    const bp = out.find((d) => d.name === 'body-parser');
+    assert.equal(bp?.type, 'devDependencies');
+  });
+
+  it('returns null lockfile for missing file', async () => {
+    // No pnpm-lock.yaml written.
+    const out = await expandWithLockfile([directExpress], dir);
+    assert.deepEqual(out, [directExpress]);
+  });
+
+  it('returns null lockfile when lockfileVersion < 6', async () => {
+    await writeFile(
+      join(dir, 'pnpm-lock.yaml'),
+      `lockfileVersion: '5.4'
+
+packages:
+
+  express@4.18.2:
+    resolution: {integrity: sha512-x}
+`,
+    );
+    const out = await expandWithLockfile([directExpress], dir);
+    assert.deepEqual(out, [directExpress]);
+  });
+
+  it('returns null lockfile when lockfileVersion is missing', async () => {
+    await writeFile(
+      join(dir, 'pnpm-lock.yaml'),
+      `packages:
+
+  express@4.18.2:
+    resolution: {integrity: sha512-x}
+`,
+    );
+    const out = await expandWithLockfile([directExpress], dir);
+    assert.deepEqual(out, [directExpress]);
+  });
+
+  it('returns null lockfile when packages: block has no entries', async () => {
+    await writeFile(
+      join(dir, 'pnpm-lock.yaml'),
+      `lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      express: 4.18.2
+`,
+    );
+    const out = await expandWithLockfile([directExpress], dir);
+    assert.deepEqual(out, [directExpress]);
+  });
+
+  it('prefers npm package-lock.json over pnpm-lock.yaml when both exist', async () => {
+    await writeFile(
+      join(dir, 'package-lock.json'),
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/express': {
+            version: '4.18.2',
+            dependencies: { lodash: '4.17.21' },
+          },
+          'node_modules/lodash': { version: '4.17.21' },
+        },
+      }),
+    );
+    await writeFile(join(dir, 'pnpm-lock.yaml'), PNPM_FIXTURE);
+    const out = await expandWithLockfile([directExpress], dir);
+    const names = out.map((d) => d.name);
+    // npm path: lodash. pnpm path would have body-parser + qs.
+    assert.ok(names.includes('lodash'));
+    assert.ok(!names.includes('body-parser'));
+  });
+
+  it('prefers pnpm-lock.yaml over yarn.lock when both exist', async () => {
+    await writeFile(join(dir, 'pnpm-lock.yaml'), PNPM_FIXTURE);
+    await writeFile(
+      join(dir, 'yarn.lock'),
+      `__metadata:
+  version: 8
+
+"express@npm:^4.18.0":
+  version: 4.18.2
+  resolution: "express@npm:4.18.2"
+  dependencies:
+    yarn-only-child: "npm:1.0.0"
+`,
+    );
+    const out = await expandWithLockfile([directExpress], dir);
+    const names = out.map((d) => d.name);
+    // pnpm path wins → body-parser/qs
+    assert.ok(names.includes('body-parser'));
+    assert.ok(!names.includes('yarn-only-child'));
+  });
+});
+
 describe('detectLockfiles', () => {
   let dir: string;
 
@@ -481,23 +791,29 @@ describe('detectLockfiles', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('returns false/false when neither file exists', async () => {
-    assert.deepEqual(await detectLockfiles(dir), { npm: false, yarn: false });
+  it('returns all-false when no lockfile exists', async () => {
+    assert.deepEqual(await detectLockfiles(dir), { npm: false, pnpm: false, yarn: false });
   });
 
   it('detects only npm', async () => {
     await writeFile(join(dir, 'package-lock.json'), '{}');
-    assert.deepEqual(await detectLockfiles(dir), { npm: true, yarn: false });
+    assert.deepEqual(await detectLockfiles(dir), { npm: true, pnpm: false, yarn: false });
+  });
+
+  it('detects only pnpm', async () => {
+    await writeFile(join(dir, 'pnpm-lock.yaml'), '');
+    assert.deepEqual(await detectLockfiles(dir), { npm: false, pnpm: true, yarn: false });
   });
 
   it('detects only yarn', async () => {
     await writeFile(join(dir, 'yarn.lock'), '');
-    assert.deepEqual(await detectLockfiles(dir), { npm: false, yarn: true });
+    assert.deepEqual(await detectLockfiles(dir), { npm: false, pnpm: false, yarn: true });
   });
 
-  it('detects both', async () => {
+  it('detects all three when present', async () => {
     await writeFile(join(dir, 'package-lock.json'), '{}');
+    await writeFile(join(dir, 'pnpm-lock.yaml'), '');
     await writeFile(join(dir, 'yarn.lock'), '');
-    assert.deepEqual(await detectLockfiles(dir), { npm: true, yarn: true });
+    assert.deepEqual(await detectLockfiles(dir), { npm: true, pnpm: true, yarn: true });
   });
 });
