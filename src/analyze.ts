@@ -31,22 +31,27 @@ export async function runAnalysis(
     deps.registry ??
     new RegistryClient({ cache, baseUrl: options.registryUrl ?? undefined });
 
-  const entries = await collectDependencies(options.path, {
+  const collected = await collectDependencies(options.path, {
     prod: options.prod,
     dev: options.dev,
     peer: options.peer,
     optional: options.optional,
+    overrides: options.overrides,
   });
 
-  const skipped: SkippedDependency[] = [];
+  const skipped: SkippedDependency[] = collected.skipped.map((s) => ({
+    name: s.name,
+    type: s.type,
+    reason: s.reason,
+  }));
   const onlySet = options.onlyNames.length > 0 ? new Set(options.onlyNames) : null;
 
   // Step 1: filter direct deps by --ignore-scope and --only.
   const directKept: DependencyEntry[] = [];
-  for (const entry of entries) {
+  for (const entry of collected.entries) {
     const matched = matchScope(entry.name, options.ignoredScopes);
     if (matched !== null) {
-      skipped.push({ name: entry.name, type: entry.type, scope: matched });
+      skipped.push({ name: entry.name, type: entry.type, reason: 'ignored-scope', scope: matched });
     } else if (onlySet !== null && !onlySet.has(entry.name)) {
       // dropped by --only; not surfaced in report
     } else {
@@ -54,9 +59,16 @@ export async function runAnalysis(
     }
   }
 
-  // Step 2: expand transitives (if requested), then re-apply --ignore-scope to the new entries.
+  // Step 2: expand transitives (if requested) — but never traverse from overrides,
+  // since they're declarations rather than resolution roots. Re-apply --ignore-scope
+  // afterwards so transitives picked up from a denied scope are filtered.
+  const overrideEntries = directKept.filter((e) => e.type === 'overrides');
+  const lockRoots = directKept.filter((e) => e.type !== 'overrides');
   const expanded = options.includeTransitive
-    ? await expandWithLockfile(directKept, dirname(options.path))
+    ? [
+        ...(await expandWithLockfile(lockRoots, dirname(options.path))),
+        ...overrideEntries,
+      ]
     : directKept;
 
   const kept: DependencyEntry[] = [];
@@ -67,7 +79,7 @@ export async function runAnalysis(
     }
     const matched = matchScope(entry.name, options.ignoredScopes);
     if (matched !== null) {
-      skipped.push({ name: entry.name, type: entry.type, scope: matched });
+      skipped.push({ name: entry.name, type: entry.type, reason: 'ignored-scope', scope: matched });
     } else {
       kept.push(entry);
     }

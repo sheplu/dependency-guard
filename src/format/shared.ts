@@ -26,6 +26,8 @@ export function typeShort(type: DependencyType): string {
       return 'peer';
     case 'optionalDependencies':
       return 'opt';
+    case 'overrides':
+      return 'over';
   }
 }
 
