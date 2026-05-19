@@ -666,7 +666,7 @@ describe('CLI integration', () => {
       assert.equal(report.dependencies.length, 1);
       assert.equal(report.dependencies[0].name, 'express');
       assert.deepEqual(report.skipped, [
-        { name: '@private/foo', type: 'dependencies', scope: '@private' },
+        { name: '@private/foo', type: 'dependencies', reason: 'ignored-scope', scope: '@private' },
       ]);
     });
 
@@ -2205,6 +2205,389 @@ packages:
       } finally {
         await markersProject.cleanup();
         await aliasRegistry.close();
+      }
+    });
+  });
+
+  describe('with overrides', () => {
+    it('analyzes top-level overrides as their own bucket', async () => {
+      const overrideProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-overrides',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          overrides: { express: '4.18.2' },
+        },
+        installed: { lodash: '4.17.21', express: '4.18.2' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            overrideProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        const express = report.dependencies.find(
+          (d: { name: string }) => d.name === 'express',
+        );
+        assert.equal(express.type, 'overrides');
+        assert.equal(express.current.version, '4.18.2');
+      } finally {
+        await overrideProject.cleanup();
+      }
+    });
+
+    it('surfaces path-specific overrides in the skipped block', async () => {
+      const overrideProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-overrides-path',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          overrides: { foo: { bar: '1.0.0' } },
+        },
+        installed: { lodash: '4.17.21' },
+      });
+      try {
+        const jsonResult = await runCli(
+          [
+            '--path',
+            overrideProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(jsonResult.exitCode, 0, jsonResult.stderr);
+        const report = JSON.parse(jsonResult.stdout);
+        assert.deepEqual(report.skipped, [
+          { name: 'foo', type: 'overrides', reason: 'override-path-specific' },
+        ]);
+
+        const tableResult = await runCli(
+          [
+            '--path',
+            overrideProject.packageJsonPath,
+            '--format',
+            'table',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(tableResult.exitCode, 0, tableResult.stderr);
+        assert.match(tableResult.stdout, /path-specific override\(s\): foo/);
+      } finally {
+        await overrideProject.cleanup();
+      }
+    });
+
+    it('surfaces reference overrides ($name) in the skipped block', async () => {
+      const overrideProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-overrides-ref',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          overrides: { baz: '$lodash' },
+        },
+        installed: { lodash: '4.17.21' },
+      });
+      try {
+        const jsonResult = await runCli(
+          [
+            '--path',
+            overrideProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(jsonResult.exitCode, 0, jsonResult.stderr);
+        const report = JSON.parse(jsonResult.stdout);
+        assert.deepEqual(report.skipped, [
+          { name: 'baz', type: 'overrides', reason: 'override-reference' },
+        ]);
+
+        const tableResult = await runCli(
+          [
+            '--path',
+            overrideProject.packageJsonPath,
+            '--format',
+            'table',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(tableResult.exitCode, 0, tableResult.stderr);
+        assert.match(tableResult.stdout, /reference override\(s\).*baz/);
+      } finally {
+        await overrideProject.cleanup();
+      }
+    });
+
+    it('analyzes the "." key when present alongside path-specific siblings', async () => {
+      const overrideProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-overrides-dot',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          overrides: { express: { '.': '4.18.2', other: '1.0.0' } },
+        },
+        installed: { lodash: '4.17.21', express: '4.18.2' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            overrideProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        const express = report.dependencies.find(
+          (d: { name: string }) => d.name === 'express',
+        );
+        assert.equal(express.type, 'overrides');
+        assert.equal(express.current.version, '4.18.2');
+        assert.deepEqual(report.skipped, []);
+      } finally {
+        await overrideProject.cleanup();
+      }
+    });
+
+    it('--update minor leaves the overrides block byte-identical', async () => {
+      const overrideProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-overrides-noupdate',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+          overrides: { express: '4.18.2' },
+        },
+        installed: { express: '4.18.2' },
+      });
+      try {
+        const before = JSON.parse(
+          await readFile(overrideProject.packageJsonPath, 'utf8'),
+        ) as { overrides: Record<string, string> };
+        const result = await runCli(
+          [
+            '--path',
+            overrideProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const after = JSON.parse(
+          await readFile(overrideProject.packageJsonPath, 'utf8'),
+        ) as { dependencies: Record<string, string>; overrides: Record<string, string> };
+        // dependencies bumped, overrides untouched
+        assert.equal(after.dependencies.express, '^4.21.0');
+        assert.deepEqual(after.overrides, before.overrides);
+      } finally {
+        await overrideProject.cleanup();
+      }
+    });
+
+    it('--overrides flag scopes the report to overrides only', async () => {
+      const overrideProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-overrides-only',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          overrides: { express: '4.18.2' },
+        },
+        installed: { lodash: '4.17.21', express: '4.18.2' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            overrideProject.packageJsonPath,
+            '--format',
+            'json',
+            '--overrides',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        assert.equal(report.dependencies.length, 1);
+        assert.equal(report.dependencies[0].name, 'express');
+        assert.equal(report.dependencies[0].type, 'overrides');
+      } finally {
+        await overrideProject.cleanup();
+      }
+    });
+
+    it('--ignore-scope skips scoped overrides with reason "ignored-scope"', async () => {
+      const overrideProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-overrides-ignore-scope',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          overrides: { '@private/pinned': '1.0.0' },
+        },
+        installed: { lodash: '4.17.21' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            overrideProject.packageJsonPath,
+            '--format',
+            'json',
+            '--ignore-scope',
+            '@private',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        assert.deepEqual(
+          report.dependencies.map((d: { name: string }) => d.name),
+          ['lodash'],
+        );
+        assert.deepEqual(report.skipped, [
+          {
+            name: '@private/pinned',
+            type: 'overrides',
+            reason: 'ignored-scope',
+            scope: '@private',
+          },
+        ]);
+      } finally {
+        await overrideProject.cleanup();
+      }
+    });
+
+    it('--only filters overrides like any other bucket', async () => {
+      const overrideProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-overrides-only-filter',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          overrides: { express: '4.18.2' },
+        },
+        installed: { lodash: '4.17.21', express: '4.18.2' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            overrideProject.packageJsonPath,
+            '--format',
+            'json',
+            '--only',
+            'express',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        assert.equal(report.dependencies.length, 1);
+        assert.equal(report.dependencies[0].name, 'express');
+        assert.equal(report.dependencies[0].type, 'overrides');
+      } finally {
+        await overrideProject.cleanup();
+      }
+    });
+
+    it('--include-transitive does not expand overrides via the lockfile', async () => {
+      // The lockfile says express has body-parser as a dependency. If overrides
+      // were expansion roots, body-parser would appear; it must not.
+      const overrideProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-overrides-transitive',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          overrides: { express: '4.18.2' },
+        },
+        installed: { lodash: '4.17.21', express: '4.18.2' },
+        packageLock: {
+          lockfileVersion: 3,
+          packages: {
+            'node_modules/lodash': { version: '4.17.21' },
+            'node_modules/express': {
+              version: '4.18.2',
+              dependencies: { 'body-parser': '1.20.0' },
+            },
+            'node_modules/body-parser': { version: '1.20.0' },
+          },
+        },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            overrideProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        const names = report.dependencies
+          .map((d: { name: string }) => d.name)
+          .toSorted();
+        assert.deepEqual(names, ['express', 'lodash']);
+        const express = report.dependencies.find(
+          (d: { name: string }) => d.name === 'express',
+        );
+        assert.equal(express.type, 'overrides');
+        assert.equal(express.transitive, false);
+      } finally {
+        await overrideProject.cleanup();
+      }
+    });
+
+    it('--fail-on minor exits 2 when a stale override has a minor upgrade', async () => {
+      // express 4.18.2 has 4.21.0 minor available in the mock registry.
+      const overrideProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-overrides-fail-on',
+          version: '1.0.0',
+          overrides: { express: '4.18.2' },
+        },
+        installed: { express: '4.18.2' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            overrideProject.packageJsonPath,
+            '--format',
+            'json',
+            '--fail-on',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 2);
+        assert.match(result.stderr, /express@4\.18\.2/);
+      } finally {
+        await overrideProject.cleanup();
       }
     });
   });

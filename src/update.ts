@@ -24,6 +24,7 @@ export function planUpdates(
   const out: PlannedUpdate[] = [];
   for (const dep of report.dependencies) {
     if (dep.transitive) continue;
+    if (dep.type === 'overrides') continue;
     const target = pickTarget(dep.latestMinor, dep.latestMajor, level);
     if (!target) continue;
     if (target.version === dep.current.version) continue;
@@ -85,12 +86,12 @@ export function detectIndent(raw: string): number | string {
 
 export function collectAllSpecs(pkg: PackageJson): Map<string, string> {
   const out = new Map<string, string>();
-  const buckets: ReadonlyArray<DependencyType> = [
+  const buckets = [
     'dependencies',
     'devDependencies',
     'peerDependencies',
     'optionalDependencies',
-  ];
+  ] as const;
   for (const bucket of buckets) {
     const entries = pkg[bucket];
     if (!entries) continue;

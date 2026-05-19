@@ -2,7 +2,13 @@ export type DependencyType =
   | 'dependencies'
   | 'devDependencies'
   | 'peerDependencies'
-  | 'optionalDependencies';
+  | 'optionalDependencies'
+  | 'overrides';
+
+export type SkippedReason =
+  | 'ignored-scope'
+  | 'override-path-specific'
+  | 'override-reference';
 
 export type UpdateType = 'up-to-date' | 'minor' | 'major';
 
@@ -42,7 +48,8 @@ export interface AnalysisSummary {
 export interface SkippedDependency {
   name: string;
   type: DependencyType;
-  scope: string;
+  reason: SkippedReason;
+  scope?: string;
 }
 
 export interface AnalysisReport {
@@ -58,6 +65,7 @@ export interface CliOptions {
   dev: boolean;
   peer: boolean;
   optional: boolean;
+  overrides: boolean;
   cache: boolean;
   cacheTtlMinutes: number;
   ignoredScopes: string[];

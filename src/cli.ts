@@ -24,6 +24,7 @@ Options:
       --dev                  Only check dev dependencies
       --peer                 Only check peer dependencies
       --optional             Only check optional dependencies
+      --overrides            Only check the overrides bucket
       --ignore-scope <scope> Skip packages in this scope (repeatable, e.g. @mycompany)
       --only <names>         Analyze only these packages (comma-separated or
                              repeatable, e.g. --only express,react)
@@ -65,6 +66,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
         dev: { type: 'boolean', default: false },
         peer: { type: 'boolean', default: false },
         optional: { type: 'boolean', default: false },
+        overrides: { type: 'boolean', default: false },
         cache: { type: 'boolean', default: true },
         'cache-clear': { type: 'boolean', default: false },
         'cache-ttl': { type: 'string', default: '60' },
@@ -99,6 +101,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     dev: boolean;
     peer: boolean;
     optional: boolean;
+    overrides: boolean;
     cache: boolean;
     'cache-clear': boolean;
     'cache-ttl': string;
@@ -216,6 +219,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     dev: values.dev,
     peer: values.peer,
     optional: values.optional,
+    overrides: values.overrides,
     cache: values.cache,
     cacheTtlMinutes,
     ignoredScopes: values['ignore-scope'],
@@ -381,12 +385,33 @@ function isHttpUrl(value: string): boolean {
 
 function skippedSummary(report: AnalysisReport): string {
   const useColor = Boolean(process.stdout.isTTY);
-  const scopes = [...new Set(report.skipped.map((s) => s.scope))].join(', ');
-  return colorize(
-    `Skipped ${report.skipped.length} package(s) from ignored scope(s): ${scopes}`,
-    'yellow',
-    useColor,
-  );
+  const lines: string[] = [];
+
+  const ignoredScopes = report.skipped.filter((s) => s.reason === 'ignored-scope');
+  if (ignoredScopes.length > 0) {
+    const scopes = [...new Set(ignoredScopes.map((s) => s.scope))].join(', ');
+    lines.push(
+      `Skipped ${ignoredScopes.length} package(s) from ignored scope(s): ${scopes}`,
+    );
+  }
+
+  const pathSpecific = report.skipped.filter((s) => s.reason === 'override-path-specific');
+  if (pathSpecific.length > 0) {
+    const names = pathSpecific.map((s) => s.name).join(', ');
+    lines.push(
+      `Skipped ${pathSpecific.length} path-specific override(s): ${names}`,
+    );
+  }
+
+  const references = report.skipped.filter((s) => s.reason === 'override-reference');
+  if (references.length > 0) {
+    const names = references.map((s) => s.name).join(', ');
+    lines.push(
+      `Skipped ${references.length} reference override(s) ("$name"): ${names}`,
+    );
+  }
+
+  return colorize(lines.join('\n'), 'yellow', useColor);
 }
 
 interface RenderOptions {

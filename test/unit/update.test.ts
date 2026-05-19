@@ -123,6 +123,20 @@ describe('planUpdates', () => {
     assert.deepEqual(updates, []);
   });
 
+  it('skips override entries even when an upgrade is available', () => {
+    const report = makeReport([
+      dep({
+        name: 'pinned-override',
+        type: 'overrides',
+        current: { version: '1.0.0', publishedAt: null },
+        latestMinor: { version: '1.5.0', publishedAt: null },
+        updateType: 'minor',
+      }),
+    ]);
+    const updates = planUpdates(report, 'minor', new Map([['pinned-override', '1.0.0']]));
+    assert.deepEqual(updates, []);
+  });
+
   it('falls back to current.version when the dep is not in the original-spec map', () => {
     const report = makeReport([
       dep({

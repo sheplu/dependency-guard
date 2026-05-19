@@ -41,6 +41,7 @@ describe('runAnalysis', () => {
             dev: false,
             peer: false,
             optional: false,
+            overrides: false,
             cache: false,
             cacheTtlMinutes: 60,
             ignoredScopes: [],
@@ -84,6 +85,7 @@ describe('runAnalysis', () => {
             dev: false,
             peer: false,
             optional: false,
+            overrides: false,
             cache: false,
             cacheTtlMinutes: 60,
             ignoredScopes: [],
@@ -134,6 +136,7 @@ describe('runAnalysis', () => {
         dev: false,
         peer: false,
         optional: false,
+        overrides: false,
         cache: false,
         cacheTtlMinutes: 60,
         ignoredScopes: [],
@@ -192,6 +195,7 @@ describe('runAnalysis', () => {
         dev: false,
         peer: false,
         optional: false,
+        overrides: false,
         cache: false,
         cacheTtlMinutes: 60,
         ignoredScopes: ['@private'],
@@ -213,8 +217,8 @@ describe('runAnalysis', () => {
     assert.equal(report.dependencies.length, 1);
     assert.equal(report.dependencies[0].name, '@other/baz');
     assert.deepEqual(report.skipped, [
-      { name: '@private/bar', type: 'dependencies', scope: '@private' },
-      { name: '@private/foo', type: 'dependencies', scope: '@private' },
+      { name: '@private/bar', type: 'dependencies', reason: 'ignored-scope', scope: '@private' },
+      { name: '@private/foo', type: 'dependencies', reason: 'ignored-scope', scope: '@private' },
     ]);
   });
 
@@ -241,6 +245,7 @@ describe('runAnalysis', () => {
         dev: false,
         peer: false,
         optional: false,
+        overrides: false,
         cache: false,
         cacheTtlMinutes: 60,
         ignoredScopes: ['@a', '@b'],
@@ -289,6 +294,7 @@ describe('runAnalysis', () => {
         dev: false,
         peer: false,
         optional: false,
+        overrides: false,
         cache: false,
         cacheTtlMinutes: 60,
         ignoredScopes: [],
@@ -378,6 +384,7 @@ describe('runAnalysis sorting', () => {
       dev: false,
       peer: false,
       optional: false,
+      overrides: false,
       cache: false,
       cacheTtlMinutes: 60,
       ignoredScopes: [],
@@ -614,6 +621,7 @@ describe('runAnalysis --only filter', () => {
       dev: false,
       peer: false,
       optional: false,
+      overrides: false,
       cache: false,
       cacheTtlMinutes: 60,
       ignoredScopes: [],
@@ -826,5 +834,175 @@ describe('runAnalysis --only filter', () => {
     );
     const names = report.dependencies.map((d) => d.name).toSorted();
     assert.deepEqual(names, ['body-parser', 'express']);
+  });
+});
+
+describe('runAnalysis overrides composition', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'dep-guard-overrides-comp-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  function makeRegistry(versions: Record<string, string[]> = {}) {
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: ((url: string) => {
+        const name = decodeURIComponent(url.split('/').pop() ?? '');
+        const known = versions[name] ?? ['1.0.0'];
+        const versionsObj: Record<string, unknown> = {};
+        const timeObj: Record<string, string> = {};
+        for (const v of known) {
+          versionsObj[v] = {};
+          timeObj[v] = '2026-01-01T00:00:00Z';
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ name, versions: versionsObj, time: timeObj }),
+            { headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }) as unknown as typeof fetch,
+    });
+    return { cache, registry };
+  }
+
+  function makeOptions(over: Partial<{
+    onlyNames: string[];
+    ignoredScopes: string[];
+    includeTransitive: boolean;
+    overrides: boolean;
+  }> = {}) {
+    return {
+      path: join(dir, 'package.json'),
+      format: 'json' as const,
+      prod: false,
+      dev: false,
+      peer: false,
+      optional: false,
+      overrides: false,
+      cache: false,
+      cacheTtlMinutes: 60,
+      ignoredScopes: [],
+      onlyNames: [],
+      quiet: false,
+      failOnLevel: null,
+      maxAgeDays: null,
+      sortBy: null,
+      registryUrl: null,
+      includeTransitive: false,
+      updateLevel: null,
+      dryRun: false,
+      ...over,
+    };
+  }
+
+  it('--ignore-scope filters overrides into skipped with reason "ignored-scope"', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { lodash: '1.0.0' },
+        overrides: { '@private/pinned': '1.0.0' },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ ignoredScopes: ['@private'] }),
+      { registry, cache },
+    );
+    assert.deepEqual(
+      report.dependencies.map((d) => d.name),
+      ['lodash'],
+    );
+    assert.equal(report.skipped.length, 1);
+    assert.deepEqual(report.skipped[0], {
+      name: '@private/pinned',
+      type: 'overrides',
+      reason: 'ignored-scope',
+      scope: '@private',
+    });
+  });
+
+  it('--only filters overrides like any other bucket', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { lodash: '1.0.0' },
+        overrides: { 'pinned-dep': '1.0.0', 'other-pin': '1.0.0' },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ onlyNames: ['pinned-dep'] }),
+      { registry, cache },
+    );
+    assert.deepEqual(
+      report.dependencies.map((d) => d.name),
+      ['pinned-dep'],
+    );
+    assert.equal(report.dependencies[0].type, 'overrides');
+  });
+
+  it('--include-transitive does not expand override entries via the lockfile', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { express: '1.0.0' },
+        overrides: { 'pinned-dep': '1.0.0' },
+      }),
+    );
+    // Lockfile lists pinned-dep with its own transitive — but since overrides
+    // are not expansion roots, that transitive must not appear.
+    await writeFile(
+      join(dir, 'package-lock.json'),
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/express': {
+            version: '1.0.0',
+            dependencies: { 'body-parser': '1.0.0' },
+          },
+          'node_modules/body-parser': { version: '1.0.0' },
+          'node_modules/pinned-dep': {
+            version: '1.0.0',
+            dependencies: { 'should-not-appear': '1.0.0' },
+          },
+          'node_modules/should-not-appear': { version: '1.0.0' },
+        },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ includeTransitive: true }),
+      { registry, cache },
+    );
+    const names = report.dependencies.map((d) => d.name).toSorted();
+    assert.deepEqual(names, ['body-parser', 'express', 'pinned-dep']);
+    const pinned = report.dependencies.find((d) => d.name === 'pinned-dep');
+    assert.equal(pinned?.type, 'overrides');
+    assert.equal(pinned?.transitive, false);
+  });
+
+  it('overrides participate in updateType so --fail-on can flag a stale pin', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        overrides: { 'stale-pin': '1.0.0' },
+      }),
+    );
+    const { cache, registry } = makeRegistry({ 'stale-pin': ['1.0.0', '1.5.0'] });
+    const report = await runAnalysis(makeOptions(), { registry, cache });
+    assert.equal(report.dependencies.length, 1);
+    const pinned = report.dependencies[0];
+    assert.equal(pinned.name, 'stale-pin');
+    assert.equal(pinned.type, 'overrides');
+    assert.equal(pinned.updateType, 'minor');
+    assert.equal(pinned.latestMinor?.version, '1.5.0');
   });
 });
