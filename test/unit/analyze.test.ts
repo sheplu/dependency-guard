@@ -6,6 +6,50 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { runAnalysis } from '../../src/analyze.ts';
 import { Cache } from '../../src/cache.ts';
 import { RegistryClient } from '../../src/registry.ts';
+import type { CliOptions } from '../../src/types.ts';
+
+function baseAnalyzeOptions(path: string): CliOptions {
+  return {
+    path,
+    format: 'json',
+    prod: false,
+    dev: false,
+    peer: false,
+    optional: false,
+    overrides: false,
+    resolutions: false,
+    pnpmOverrides: false,
+    cache: false,
+    cacheTtlMinutes: 60,
+    ignoredScopes: [],
+    quiet: false,
+    failOnLevel: null,
+    maxAgeDays: null,
+    sortBy: null,
+    registryUrl: null,
+    includeTransitive: false,
+    updateLevel: null,
+    dryRun: false,
+    onlyNames: [],
+  };
+}
+
+function fetchByName(
+  responder: (name: string) => { status?: number; body?: unknown },
+): typeof fetch {
+  return ((url: string) => {
+    const name = decodeURIComponent(url.split('/').pop() ?? '');
+    const { status = 200, body = { name, versions: { '1.0.0': {} }, time: { '1.0.0': '2026-01-01T00:00:00Z' } } } =
+      responder(name);
+    return Promise.resolve(
+      new Response(typeof body === 'string' ? body : JSON.stringify(body), {
+        status,
+        statusText: status === 404 ? 'Not Found' : status === 403 ? 'Forbidden' : status === 401 ? 'Unauthorized' : 'OK',
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+  }) as unknown as typeof fetch;
+}
 
 describe('runAnalysis', () => {
   let dir: string;
@@ -1307,5 +1351,152 @@ describe('runAnalysis pnpm.overrides composition', () => {
     assert.equal(byName.get('npm-pin')?.type, 'overrides');
     assert.equal(byName.get('yarn-pin')?.type, 'resolutions');
     assert.equal(byName.get('pnpm-pin')?.type, 'pnpm.overrides');
+  });
+});
+
+describe('runAnalysis registry HTTP error handling', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'dep-guard-http-err-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('routes a 404 to skipped with reason "registry-not-found" and continues with other deps', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { 'gone-pkg': '1.0.0', 'live-pkg': '1.0.0' },
+      }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: fetchByName((name) => (name === 'gone-pkg' ? { status: 404 } : {})),
+    });
+
+    const report = await runAnalysis(baseAnalyzeOptions(join(dir, 'package.json')), {
+      registry,
+      cache,
+    });
+
+    assert.deepEqual(
+      report.dependencies.map((d) => d.name),
+      ['live-pkg'],
+    );
+    assert.equal(report.skipped.length, 1);
+    assert.deepEqual(report.skipped[0], {
+      name: 'gone-pkg',
+      type: 'dependencies',
+      reason: 'registry-not-found',
+      status: 404,
+    });
+  });
+
+  it('routes a 401 to skipped with reason "registry-unauthorized" and status 401', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { '@private/foo': '1.0.0' } }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: fetchByName(() => ({ status: 401 })),
+    });
+
+    const report = await runAnalysis(baseAnalyzeOptions(join(dir, 'package.json')), {
+      registry,
+      cache,
+    });
+
+    assert.deepEqual(report.dependencies, []);
+    assert.equal(report.skipped.length, 1);
+    assert.deepEqual(report.skipped[0], {
+      name: '@private/foo',
+      type: 'dependencies',
+      reason: 'registry-unauthorized',
+      status: 401,
+    });
+  });
+
+  it('routes a 403 to skipped with reason "registry-unauthorized" and status 403', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { '@private/foo': '1.0.0' } }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: fetchByName(() => ({ status: 403 })),
+    });
+
+    const report = await runAnalysis(baseAnalyzeOptions(join(dir, 'package.json')), {
+      registry,
+      cache,
+    });
+
+    assert.deepEqual(report.skipped, [
+      {
+        name: '@private/foo',
+        type: 'dependencies',
+        reason: 'registry-unauthorized',
+        status: 403,
+      },
+    ]);
+  });
+
+  it('still propagates a 500 (not skippable) so the run fails loudly', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { 'flaky-pkg': '1.0.0' } }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: fetchByName(() => ({ status: 500 })),
+    });
+
+    await assert.rejects(
+      () =>
+        runAnalysis(baseAnalyzeOptions(join(dir, 'package.json')), {
+          registry,
+          cache,
+        }),
+      /Failed to analyze flaky-pkg: Registry request failed.*500/,
+    );
+  });
+
+  it('still propagates a non-HTTP error (regression for the narrow catch)', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { broken: '1.0.0' } }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: (() => Promise.reject(new Error('boom'))) as typeof fetch,
+    });
+
+    await assert.rejects(
+      () =>
+        runAnalysis(baseAnalyzeOptions(join(dir, 'package.json')), {
+          registry,
+          cache,
+        }),
+      /Failed to analyze broken: boom/,
+    );
   });
 });

@@ -3,7 +3,7 @@ import { analyzeDependency, summarize } from './analyzer.ts';
 import { Cache } from './cache.ts';
 import { expandWithLockfile } from './lockfile.ts';
 import { collectDependencies, type DependencyEntry } from './package-json.ts';
-import { RegistryClient } from './registry.ts';
+import { RegistryClient, RegistryHttpError } from './registry.ts';
 import type {
   AnalysisReport,
   CliOptions,
@@ -99,6 +99,18 @@ export async function runAnalysis(
       const meta = await registry.getPackage(entry.name);
       analyses.push(analyzeDependency({ entry, metadata: meta, now: deps.now }));
     } catch (err) {
+      if (
+        err instanceof RegistryHttpError &&
+        (err.status === 404 || err.status === 401 || err.status === 403)
+      ) {
+        skipped.push({
+          name: entry.name,
+          type: entry.type,
+          reason: err.status === 404 ? 'registry-not-found' : 'registry-unauthorized',
+          status: err.status,
+        });
+        continue;
+      }
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to analyze ${entry.name}: ${message}`, { cause: err });
     }
