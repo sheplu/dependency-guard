@@ -3,12 +3,16 @@ export type DependencyType =
   | 'devDependencies'
   | 'peerDependencies'
   | 'optionalDependencies'
-  | 'overrides';
+  | 'overrides'
+  | 'resolutions'
+  | 'pnpm.overrides';
 
 export type SkippedReason =
   | 'ignored-scope'
   | 'override-path-specific'
-  | 'override-reference';
+  | 'override-reference'
+  | 'override-removal'
+  | 'override-descriptor';
 
 export type UpdateType = 'up-to-date' | 'minor' | 'major';
 
@@ -66,6 +70,8 @@ export interface CliOptions {
   peer: boolean;
   optional: boolean;
   overrides: boolean;
+  resolutions: boolean;
+  pnpmOverrides: boolean;
   cache: boolean;
   cacheTtlMinutes: number;
   ignoredScopes: string[];

@@ -8,10 +8,15 @@ import type {
   AnalysisReport,
   CliOptions,
   DependencyAnalysis,
+  DependencyType,
   SkippedDependency,
   SortField,
   UpdateType,
 } from './types.ts';
+
+export function isOverrideType(t: DependencyType): boolean {
+  return t === 'overrides' || t === 'resolutions' || t === 'pnpm.overrides';
+}
 
 export interface AnalyzeRunDeps {
   registry?: RegistryClient;
@@ -37,6 +42,8 @@ export async function runAnalysis(
     peer: options.peer,
     optional: options.optional,
     overrides: options.overrides,
+    resolutions: options.resolutions,
+    pnpmOverrides: options.pnpmOverrides,
   });
 
   const skipped: SkippedDependency[] = collected.skipped.map((s) => ({
@@ -59,11 +66,12 @@ export async function runAnalysis(
     }
   }
 
-  // Step 2: expand transitives (if requested) — but never traverse from overrides,
-  // since they're declarations rather than resolution roots. Re-apply --ignore-scope
-  // afterwards so transitives picked up from a denied scope are filtered.
-  const overrideEntries = directKept.filter((e) => e.type === 'overrides');
-  const lockRoots = directKept.filter((e) => e.type !== 'overrides');
+  // Step 2: expand transitives (if requested) — but never traverse from any pin
+  // type (npm overrides, yarn resolutions, pnpm.overrides), since they're
+  // declarations rather than resolution roots. Re-apply --ignore-scope afterwards
+  // so transitives picked up from a denied scope are filtered.
+  const overrideEntries = directKept.filter((e) => isOverrideType(e.type));
+  const lockRoots = directKept.filter((e) => !isOverrideType(e.type));
   const expanded = options.includeTransitive
     ? [
         ...(await expandWithLockfile(lockRoots, dirname(options.path))),

@@ -185,6 +185,42 @@ describe('formatTable', () => {
     assert.match(out, /request ⚠/);
   });
 
+  it('renders rows for the resolutions and pnpm.overrides types with their short labels', () => {
+    const report: AnalysisReport = {
+      summary: { total: 2, upToDate: 2, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'yarn-pin',
+          type: 'resolutions',
+          current: { version: '1.0.0', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 10,
+          latestAgeInDays: 10,
+          updateType: 'up-to-date',
+          deprecated: null,
+          transitive: false,
+        },
+        {
+          name: 'pnpm-pin',
+          type: 'pnpm.overrides',
+          current: { version: '2.0.0', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 20,
+          latestAgeInDays: 20,
+          updateType: 'up-to-date',
+          deprecated: null,
+          transitive: false,
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatTable(report, { color: false });
+    assert.match(out, /yarn-pin\s+│\s+resol\s+│/);
+    assert.match(out, /pnpm-pin\s+│\s+pnpm\s+│/);
+  });
+
   it('defaults color to TTY detection when option is omitted', () => {
     const report: AnalysisReport = {
       summary: { total: 0, upToDate: 0, minorUpdates: 0, majorUpdates: 0 },

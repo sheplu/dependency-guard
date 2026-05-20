@@ -28,6 +28,10 @@ export function typeShort(type: DependencyType): string {
       return 'opt';
     case 'overrides':
       return 'over';
+    case 'resolutions':
+      return 'resol';
+    case 'pnpm.overrides':
+      return 'pnpm';
   }
 }
 

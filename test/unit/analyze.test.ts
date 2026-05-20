@@ -42,6 +42,8 @@ describe('runAnalysis', () => {
             peer: false,
             optional: false,
             overrides: false,
+            resolutions: false,
+            pnpmOverrides: false,
             cache: false,
             cacheTtlMinutes: 60,
             ignoredScopes: [],
@@ -86,6 +88,8 @@ describe('runAnalysis', () => {
             peer: false,
             optional: false,
             overrides: false,
+            resolutions: false,
+            pnpmOverrides: false,
             cache: false,
             cacheTtlMinutes: 60,
             ignoredScopes: [],
@@ -137,6 +141,8 @@ describe('runAnalysis', () => {
         peer: false,
         optional: false,
         overrides: false,
+        resolutions: false,
+        pnpmOverrides: false,
         cache: false,
         cacheTtlMinutes: 60,
         ignoredScopes: [],
@@ -196,6 +202,8 @@ describe('runAnalysis', () => {
         peer: false,
         optional: false,
         overrides: false,
+        resolutions: false,
+        pnpmOverrides: false,
         cache: false,
         cacheTtlMinutes: 60,
         ignoredScopes: ['@private'],
@@ -246,6 +254,8 @@ describe('runAnalysis', () => {
         peer: false,
         optional: false,
         overrides: false,
+        resolutions: false,
+        pnpmOverrides: false,
         cache: false,
         cacheTtlMinutes: 60,
         ignoredScopes: ['@a', '@b'],
@@ -295,6 +305,8 @@ describe('runAnalysis', () => {
         peer: false,
         optional: false,
         overrides: false,
+        resolutions: false,
+        pnpmOverrides: false,
         cache: false,
         cacheTtlMinutes: 60,
         ignoredScopes: [],
@@ -385,6 +397,8 @@ describe('runAnalysis sorting', () => {
       peer: false,
       optional: false,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
       cache: false,
       cacheTtlMinutes: 60,
       ignoredScopes: [],
@@ -622,6 +636,8 @@ describe('runAnalysis --only filter', () => {
       peer: false,
       optional: false,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
       cache: false,
       cacheTtlMinutes: 60,
       ignoredScopes: [],
@@ -887,6 +903,8 @@ describe('runAnalysis overrides composition', () => {
       peer: false,
       optional: false,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
       cache: false,
       cacheTtlMinutes: 60,
       ignoredScopes: [],
@@ -1004,5 +1022,290 @@ describe('runAnalysis overrides composition', () => {
     assert.equal(pinned.type, 'overrides');
     assert.equal(pinned.updateType, 'minor');
     assert.equal(pinned.latestMinor?.version, '1.5.0');
+  });
+});
+
+describe('runAnalysis resolutions composition', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'dep-guard-resol-comp-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  function makeRegistry(versions: Record<string, string[]> = {}) {
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: ((url: string) => {
+        const name = decodeURIComponent(url.split('/').pop() ?? '');
+        const known = versions[name] ?? ['1.0.0'];
+        const versionsObj: Record<string, unknown> = {};
+        const timeObj: Record<string, string> = {};
+        for (const v of known) {
+          versionsObj[v] = {};
+          timeObj[v] = '2026-01-01T00:00:00Z';
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ name, versions: versionsObj, time: timeObj }),
+            { headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }) as unknown as typeof fetch,
+    });
+    return { cache, registry };
+  }
+
+  function makeOptions(over: Partial<{
+    onlyNames: string[];
+    ignoredScopes: string[];
+    includeTransitive: boolean;
+    resolutions: boolean;
+  }> = {}) {
+    return {
+      path: join(dir, 'package.json'),
+      format: 'json' as const,
+      prod: false,
+      dev: false,
+      peer: false,
+      optional: false,
+      overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
+      cache: false,
+      cacheTtlMinutes: 60,
+      ignoredScopes: [],
+      onlyNames: [],
+      quiet: false,
+      failOnLevel: null,
+      maxAgeDays: null,
+      sortBy: null,
+      registryUrl: null,
+      includeTransitive: false,
+      updateLevel: null,
+      dryRun: false,
+      ...over,
+    };
+  }
+
+  it('analyzes a top-level resolutions pin and tags it with type "resolutions"', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        resolutions: { 'yarn-pin': '1.0.0' },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(makeOptions(), { registry, cache });
+    assert.equal(report.dependencies.length, 1);
+    assert.equal(report.dependencies[0].name, 'yarn-pin');
+    assert.equal(report.dependencies[0].type, 'resolutions');
+  });
+
+  it('--ignore-scope filters resolutions into skipped with reason "ignored-scope"', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { lodash: '1.0.0' },
+        resolutions: { '@private/pinned': '1.0.0' },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ ignoredScopes: ['@private'] }),
+      { registry, cache },
+    );
+    assert.deepEqual(report.dependencies.map((d) => d.name), ['lodash']);
+    assert.equal(report.skipped.length, 1);
+    assert.deepEqual(report.skipped[0], {
+      name: '@private/pinned',
+      type: 'resolutions',
+      reason: 'ignored-scope',
+      scope: '@private',
+    });
+  });
+
+  it('--include-transitive does not expand resolutions entries via the lockfile', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { express: '1.0.0' },
+        resolutions: { 'pinned-dep': '1.0.0' },
+      }),
+    );
+    await writeFile(
+      join(dir, 'package-lock.json'),
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/express': {
+            version: '1.0.0',
+            dependencies: { 'body-parser': '1.0.0' },
+          },
+          'node_modules/body-parser': { version: '1.0.0' },
+          'node_modules/pinned-dep': {
+            version: '1.0.0',
+            dependencies: { 'should-not-appear': '1.0.0' },
+          },
+          'node_modules/should-not-appear': { version: '1.0.0' },
+        },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ includeTransitive: true }),
+      { registry, cache },
+    );
+    const names = report.dependencies.map((d) => d.name).toSorted();
+    assert.deepEqual(names, ['body-parser', 'express', 'pinned-dep']);
+    const pinned = report.dependencies.find((d) => d.name === 'pinned-dep');
+    assert.equal(pinned?.type, 'resolutions');
+    assert.equal(pinned?.transitive, false);
+  });
+});
+
+describe('runAnalysis pnpm.overrides composition', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'dep-guard-pnpm-comp-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  function makeRegistry(versions: Record<string, string[]> = {}) {
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: ((url: string) => {
+        const name = decodeURIComponent(url.split('/').pop() ?? '');
+        const known = versions[name] ?? ['1.0.0'];
+        const versionsObj: Record<string, unknown> = {};
+        const timeObj: Record<string, string> = {};
+        for (const v of known) {
+          versionsObj[v] = {};
+          timeObj[v] = '2026-01-01T00:00:00Z';
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ name, versions: versionsObj, time: timeObj }),
+            { headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }) as unknown as typeof fetch,
+    });
+    return { cache, registry };
+  }
+
+  function makeOptions(over: Partial<{
+    onlyNames: string[];
+    ignoredScopes: string[];
+    includeTransitive: boolean;
+    pnpmOverrides: boolean;
+  }> = {}) {
+    return {
+      path: join(dir, 'package.json'),
+      format: 'json' as const,
+      prod: false,
+      dev: false,
+      peer: false,
+      optional: false,
+      overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
+      cache: false,
+      cacheTtlMinutes: 60,
+      ignoredScopes: [],
+      onlyNames: [],
+      quiet: false,
+      failOnLevel: null,
+      maxAgeDays: null,
+      sortBy: null,
+      registryUrl: null,
+      includeTransitive: false,
+      updateLevel: null,
+      dryRun: false,
+      ...over,
+    };
+  }
+
+  it('analyzes a top-level pnpm.overrides pin and tags it with type "pnpm.overrides"', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        pnpm: { overrides: { 'pnpm-pin': '1.0.0' } },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(makeOptions(), { registry, cache });
+    assert.equal(report.dependencies.length, 1);
+    assert.equal(report.dependencies[0].name, 'pnpm-pin');
+    assert.equal(report.dependencies[0].type, 'pnpm.overrides');
+  });
+
+  it('--include-transitive does not expand pnpm.overrides entries via the lockfile', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { express: '1.0.0' },
+        pnpm: { overrides: { 'pinned-dep': '1.0.0' } },
+      }),
+    );
+    await writeFile(
+      join(dir, 'package-lock.json'),
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/express': {
+            version: '1.0.0',
+            dependencies: { 'body-parser': '1.0.0' },
+          },
+          'node_modules/body-parser': { version: '1.0.0' },
+          'node_modules/pinned-dep': {
+            version: '1.0.0',
+            dependencies: { 'should-not-appear': '1.0.0' },
+          },
+          'node_modules/should-not-appear': { version: '1.0.0' },
+        },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(
+      makeOptions({ includeTransitive: true }),
+      { registry, cache },
+    );
+    const names = report.dependencies.map((d) => d.name).toSorted();
+    assert.deepEqual(names, ['body-parser', 'express', 'pinned-dep']);
+    const pinned = report.dependencies.find((d) => d.name === 'pinned-dep');
+    assert.equal(pinned?.type, 'pnpm.overrides');
+    assert.equal(pinned?.transitive, false);
+  });
+
+  it('mixed-source repo: dependencies + overrides + resolutions + pnpm.overrides all appear with correct types', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { 'plain-dep': '1.0.0' },
+        overrides: { 'npm-pin': '1.0.0' },
+        resolutions: { 'yarn-pin': '1.0.0' },
+        pnpm: { overrides: { 'pnpm-pin': '1.0.0' } },
+      }),
+    );
+    const { cache, registry } = makeRegistry();
+    const report = await runAnalysis(makeOptions(), { registry, cache });
+    const byName = new Map(report.dependencies.map((d) => [d.name, d]));
+    assert.equal(byName.size, 4);
+    assert.equal(byName.get('plain-dep')?.type, 'dependencies');
+    assert.equal(byName.get('npm-pin')?.type, 'overrides');
+    assert.equal(byName.get('yarn-pin')?.type, 'resolutions');
+    assert.equal(byName.get('pnpm-pin')?.type, 'pnpm.overrides');
   });
 });

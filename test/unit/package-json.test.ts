@@ -3,7 +3,12 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { collectDependencies, collectOverrides } from '../../src/package-json.ts';
+import {
+  collectDependencies,
+  collectOverrides,
+  collectPnpmOverrides,
+  collectResolutions,
+} from '../../src/package-json.ts';
 
 describe('collectDependencies', () => {
   let dir: string;
@@ -37,6 +42,8 @@ describe('collectDependencies', () => {
       peer: false,
       optional: false,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
     });
     const names = entries.map((e) => e.name).toSorted();
     assert.deepEqual(names, ['express', 'lodash', 'react', 'typescript']);
@@ -49,6 +56,8 @@ describe('collectDependencies', () => {
       peer: false,
       optional: false,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
     });
     assert.deepEqual(
       entries.map((e) => [e.type, e.name]),
@@ -68,6 +77,8 @@ describe('collectDependencies', () => {
       peer: false,
       optional: false,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
     });
     assert.deepEqual(
       entries.map((e) => e.name).toSorted(),
@@ -82,6 +93,8 @@ describe('collectDependencies', () => {
       peer: false,
       optional: false,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
     });
     const express = entries.find((e) => e.name === 'express');
     assert.equal(express?.installedVersion, '4.18.2');
@@ -94,6 +107,8 @@ describe('collectDependencies', () => {
       peer: false,
       optional: false,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
     });
     assert.deepEqual(entries.map((e) => e.name), ['typescript']);
   });
@@ -105,6 +120,8 @@ describe('collectDependencies', () => {
       peer: true,
       optional: false,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
     });
     assert.deepEqual(entries.map((e) => e.name), ['react']);
   });
@@ -116,6 +133,8 @@ describe('collectDependencies', () => {
       peer: false,
       optional: true,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
     });
     assert.deepEqual(entries, []);
   });
@@ -129,6 +148,8 @@ describe('collectDependencies', () => {
       peer: false,
       optional: false,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
     });
     const lodash = entries.find((e) => e.name === 'lodash');
     assert.equal(lodash?.installedVersion, '4.17.21');
@@ -146,6 +167,8 @@ describe('collectDependencies', () => {
       peer: false,
       optional: false,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
     });
     const lodash = entries.find((e) => e.name === 'lodash');
     assert.equal(lodash?.installedVersion, '4.17.21');
@@ -158,6 +181,8 @@ describe('collectDependencies', () => {
       peer: false,
       optional: false,
       overrides: false,
+      resolutions: false,
+      pnpmOverrides: false,
     });
     const lodash = entries.find((e) => e.name === 'lodash');
     assert.equal(lodash?.installedVersion, '4.17.21');
@@ -215,5 +240,206 @@ describe('collectOverrides', () => {
     });
     assert.deepEqual(entries, [{ name: 'foo', version: '2.0.0' }]);
     assert.deepEqual(skipped, []);
+  });
+
+  it('skips non-semver descriptor values at the top level (npm:, file:, etc.)', () => {
+    const { entries, skipped } = collectOverrides({
+      tarballed: 'file:./vendor/tarball.tgz',
+      aliased: 'npm:@myorg/lodash@^4.0.0',
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [
+      { name: 'tarballed', reason: 'override-descriptor' },
+      { name: 'aliased', reason: 'override-descriptor' },
+    ]);
+  });
+
+  it('skips non-semver descriptor values inside the "." key', () => {
+    const { entries, skipped } = collectOverrides({
+      foo: { '.': 'file:./vendor/tarball.tgz' },
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'foo', reason: 'override-descriptor' }]);
+  });
+});
+
+describe('collectResolutions', () => {
+  it('returns empty for undefined input', () => {
+    assert.deepEqual(collectResolutions(undefined), { entries: [], skipped: [] });
+  });
+
+  it('returns empty for empty object', () => {
+    assert.deepEqual(collectResolutions({}), { entries: [], skipped: [] });
+  });
+
+  it('analyzes a top-level string pin', () => {
+    const { entries, skipped } = collectResolutions({ lodash: '4.17.21' });
+    assert.deepEqual(entries, [{ name: 'lodash', version: '4.17.21' }]);
+    assert.deepEqual(skipped, []);
+  });
+
+  it('analyzes a scoped pin', () => {
+    const { entries, skipped } = collectResolutions({ '@babel/core': '7.22.0' });
+    assert.deepEqual(entries, [{ name: '@babel/core', version: '7.22.0' }]);
+    assert.deepEqual(skipped, []);
+  });
+
+  it('skips parent/child path-specific keys', () => {
+    const { entries, skipped } = collectResolutions({
+      'webpack/memory-fs': '0.4.1',
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [
+      { name: 'webpack/memory-fs', reason: 'override-path-specific' },
+    ]);
+  });
+
+  it('skips glob keys', () => {
+    const { entries, skipped } = collectResolutions({
+      'c/**/left-pad': '^1.1.2',
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [
+      { name: 'c/**/left-pad', reason: 'override-path-specific' },
+    ]);
+  });
+
+  it('skips pkg@range/child descriptor keys', () => {
+    const { entries, skipped } = collectResolutions({
+      '@babel/core@npm:7.0.0/@babel/generator': '7.20.0',
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [
+      {
+        name: '@babel/core@npm:7.0.0/@babel/generator',
+        reason: 'override-path-specific',
+      },
+    ]);
+  });
+
+  it('skips npm: aliased descriptor values', () => {
+    const { entries, skipped } = collectResolutions({
+      pinned: 'npm:foo@1.0.0',
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [
+      { name: 'pinned', reason: 'override-descriptor' },
+    ]);
+  });
+
+  it('skips file: descriptor values', () => {
+    const { entries, skipped } = collectResolutions({
+      tarballed: 'file:./vendor/tarball.tgz',
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [
+      { name: 'tarballed', reason: 'override-descriptor' },
+    ]);
+  });
+
+  it('skips non-string values defensively (path-specific)', () => {
+    const { entries, skipped } = collectResolutions({
+      // @ts-expect-error simulating a malformed manifest
+      bad: 42,
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'bad', reason: 'override-path-specific' }]);
+  });
+
+  it('skips empty-string values as descriptor (defensive)', () => {
+    const { entries, skipped } = collectResolutions({ empty: '' });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'empty', reason: 'override-descriptor' }]);
+  });
+
+  it('skips a "-" value as descriptor (yarn ignores pnpm syntax)', () => {
+    const { entries, skipped } = collectResolutions({ dash: '-' });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'dash', reason: 'override-descriptor' }]);
+  });
+
+  it('skips a "$name" value as descriptor (yarn ignores pnpm syntax)', () => {
+    const { entries, skipped } = collectResolutions({ ref: '$lodash' });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'ref', reason: 'override-descriptor' }]);
+  });
+});
+
+describe('collectPnpmOverrides', () => {
+  it('returns empty for undefined input', () => {
+    assert.deepEqual(collectPnpmOverrides(undefined), { entries: [], skipped: [] });
+  });
+
+  it('returns empty for empty object', () => {
+    assert.deepEqual(collectPnpmOverrides({}), { entries: [], skipped: [] });
+  });
+
+  it('analyzes a top-level string pin', () => {
+    const { entries, skipped } = collectPnpmOverrides({ axios: '1.5.0' });
+    assert.deepEqual(entries, [{ name: 'axios', version: '1.5.0' }]);
+    assert.deepEqual(skipped, []);
+  });
+
+  it('analyzes a scoped pin', () => {
+    const { entries, skipped } = collectPnpmOverrides({ '@scope/foo': '1.0.0' });
+    assert.deepEqual(entries, [{ name: '@scope/foo', version: '1.0.0' }]);
+    assert.deepEqual(skipped, []);
+  });
+
+  it('skips parent>child path-specific keys', () => {
+    const { entries, skipped } = collectPnpmOverrides({
+      'qar>zoo': '2.0.0',
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'qar>zoo', reason: 'override-path-specific' }]);
+  });
+
+  it('skips pkg@range version-qualified keys', () => {
+    const { entries, skipped } = collectPnpmOverrides({
+      'bar@^2.1.0': '3.0.0',
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [
+      { name: 'bar@^2.1.0', reason: 'override-path-specific' },
+    ]);
+  });
+
+  it('skips $name reference values', () => {
+    const { entries, skipped } = collectPnpmOverrides({ ref: '$lodash' });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'ref', reason: 'override-reference' }]);
+  });
+
+  it('skips "-" removal values', () => {
+    const { entries, skipped } = collectPnpmOverrides({ removed: '-' });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'removed', reason: 'override-removal' }]);
+  });
+
+  it('skips npm: descriptor values', () => {
+    const { entries, skipped } = collectPnpmOverrides({
+      aliased: 'npm:@myorg/quux@^1.0.0',
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [
+      { name: 'aliased', reason: 'override-descriptor' },
+    ]);
+  });
+
+  it('skips workspace: descriptor values', () => {
+    const { entries, skipped } = collectPnpmOverrides({
+      ws: 'workspace:*',
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'ws', reason: 'override-descriptor' }]);
+  });
+
+  it('skips non-string values defensively', () => {
+    const { entries, skipped } = collectPnpmOverrides({
+      // @ts-expect-error simulating a malformed manifest
+      bad: 42,
+    });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'bad', reason: 'override-descriptor' }]);
   });
 });

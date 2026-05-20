@@ -98,6 +98,42 @@ describe('formatMarkdown', () => {
     assert.match(out, /\| request ⚠ \|/);
   });
 
+  it('renders rows for the resolutions and pnpm.overrides types with their short labels', () => {
+    const report: AnalysisReport = {
+      summary: { total: 2, upToDate: 2, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'yarn-pin',
+          type: 'resolutions',
+          current: { version: '1.0.0', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 10,
+          latestAgeInDays: 10,
+          updateType: 'up-to-date',
+          deprecated: null,
+          transitive: false,
+        },
+        {
+          name: 'pnpm-pin',
+          type: 'pnpm.overrides',
+          current: { version: '2.0.0', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 20,
+          latestAgeInDays: 20,
+          updateType: 'up-to-date',
+          deprecated: null,
+          transitive: false,
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatMarkdown(report);
+    assert.match(out, /\| yarn-pin \| resol \|/);
+    assert.match(out, /\| pnpm-pin \| pnpm \|/);
+  });
+
   it('omits the heading and bullet list when quiet: true', () => {
     const report: AnalysisReport = {
       summary: { total: 1, upToDate: 1, minorUpdates: 0, majorUpdates: 0 },

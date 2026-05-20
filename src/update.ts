@@ -1,4 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { isOverrideType } from './analyze.ts';
 import type {
   AnalysisReport,
   DependencyType,
@@ -24,7 +25,7 @@ export function planUpdates(
   const out: PlannedUpdate[] = [];
   for (const dep of report.dependencies) {
     if (dep.transitive) continue;
-    if (dep.type === 'overrides') continue;
+    if (isOverrideType(dep.type)) continue;
     const target = pickTarget(dep.latestMinor, dep.latestMajor, level);
     if (!target) continue;
     if (target.version === dep.current.version) continue;

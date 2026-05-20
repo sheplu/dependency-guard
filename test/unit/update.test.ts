@@ -137,6 +137,34 @@ describe('planUpdates', () => {
     assert.deepEqual(updates, []);
   });
 
+  it('skips yarn resolutions entries even when an upgrade is available', () => {
+    const report = makeReport([
+      dep({
+        name: 'pinned-resol',
+        type: 'resolutions',
+        current: { version: '1.0.0', publishedAt: null },
+        latestMinor: { version: '1.5.0', publishedAt: null },
+        updateType: 'minor',
+      }),
+    ]);
+    const updates = planUpdates(report, 'minor', new Map([['pinned-resol', '1.0.0']]));
+    assert.deepEqual(updates, []);
+  });
+
+  it('skips pnpm.overrides entries even when an upgrade is available', () => {
+    const report = makeReport([
+      dep({
+        name: 'pinned-pnpm',
+        type: 'pnpm.overrides',
+        current: { version: '1.0.0', publishedAt: null },
+        latestMinor: { version: '1.5.0', publishedAt: null },
+        updateType: 'minor',
+      }),
+    ]);
+    const updates = planUpdates(report, 'minor', new Map([['pinned-pnpm', '1.0.0']]));
+    assert.deepEqual(updates, []);
+  });
+
   it('falls back to current.version when the dep is not in the original-spec map', () => {
     const report = makeReport([
       dep({
