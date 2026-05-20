@@ -3560,4 +3560,168 @@ packages:
       }
     });
   });
+
+  describe('with private-scope packages', () => {
+    let privateRegistry: MockRegistry;
+    let privateProject: TmpProject;
+
+    beforeEach(async () => {
+      privateRegistry = await startMockRegistry([
+        {
+          name: 'express',
+          versions: {
+            '4.18.2': { version: '4.18.2' },
+            '4.21.0': { version: '4.21.0' },
+          },
+          time: {
+            '4.18.2': '2025-09-15T00:00:00Z',
+            '4.21.0': '2026-02-01T00:00:00Z',
+          },
+        },
+        {
+          name: '@private/foo',
+          versions: {},
+          time: {},
+          status: 403,
+        },
+      ]);
+      privateProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-private',
+          version: '1.0.0',
+          dependencies: {
+            '@private/foo': '1.0.0',
+            express: '^4.18.0',
+          },
+        },
+        installed: {
+          '@private/foo': '1.0.0',
+          express: '4.18.2',
+        },
+      });
+    });
+
+    afterEach(async () => {
+      await privateRegistry.close();
+      await privateProject.cleanup();
+    });
+
+    it('skips a 403 package and continues analyzing the rest (JSON)', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          privateProject.packageJsonPath,
+          '--format',
+          'json',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: privateRegistry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      const report = JSON.parse(result.stdout);
+      assert.equal(report.dependencies.length, 1);
+      assert.equal(report.dependencies[0].name, 'express');
+      assert.deepEqual(report.skipped, [
+        {
+          name: '@private/foo',
+          type: 'dependencies',
+          reason: 'registry-unauthorized',
+          status: 403,
+        },
+      ]);
+    });
+
+    it('appends the skippedSummary line below the table for a 403 package', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          privateProject.packageJsonPath,
+          '--format',
+          'table',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: privateRegistry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /express/);
+      assert.match(
+        result.stdout,
+        /Skipped 1 package\(s\) — registry returned 401\/403 \(unauthorized; private scope\?\): @private\/foo \(403\)/,
+      );
+    });
+
+    it('skips a 404 package and surfaces it as "registry returned 404 (not found)"', async () => {
+      const notFoundProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-404',
+          version: '1.0.0',
+          dependencies: {
+            'totally-not-a-real-package': '1.0.0',
+            express: '^4.18.0',
+          },
+        },
+        installed: {
+          'totally-not-a-real-package': '1.0.0',
+          express: '4.18.2',
+        },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            notFoundProject.packageJsonPath,
+            '--format',
+            'table',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: privateRegistry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(result.stdout, /express/);
+        assert.match(
+          result.stdout,
+          /Skipped 1 package\(s\) — registry returned 404 \(not found\): totally-not-a-real-package/,
+        );
+      } finally {
+        await notFoundProject.cleanup();
+      }
+    });
+
+    it('still exits 1 when the registry returns 500 (not silently swallowed)', async () => {
+      const flakyRegistry = await startMockRegistry([
+        {
+          name: 'express',
+          versions: {},
+          time: {},
+          status: 500,
+        },
+      ]);
+      const flakyProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-flaky',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            flakyProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: flakyRegistry.url },
+        );
+        assert.equal(result.exitCode, 1);
+        assert.match(result.stderr, /Failed to analyze express/);
+        assert.match(result.stderr, /500/);
+      } finally {
+        await flakyRegistry.close();
+        await flakyProject.cleanup();
+      }
+    });
+  });
 });

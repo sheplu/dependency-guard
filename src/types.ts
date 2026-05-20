@@ -12,7 +12,9 @@ export type SkippedReason =
   | 'override-path-specific'
   | 'override-reference'
   | 'override-removal'
-  | 'override-descriptor';
+  | 'override-descriptor'
+  | 'registry-not-found'
+  | 'registry-unauthorized';
 
 export type UpdateType = 'up-to-date' | 'patch' | 'minor' | 'major';
 
@@ -56,6 +58,7 @@ export interface SkippedDependency {
   type: DependencyType;
   reason: SkippedReason;
   scope?: string;
+  status?: number;
 }
 
 export interface AnalysisReport {

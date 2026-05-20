@@ -2,7 +2,7 @@ import { formatAge } from '../age.ts';
 import type { AnalysisReport, DependencyAnalysis, UpdateType } from '../types.ts';
 import { ANSI, type AnsiColor, colorize, statusLabel, typeShort } from './shared.ts';
 
-const HEADERS = ['Package', 'Type', 'Current', 'Patch', 'Minor', 'Major', 'Age', 'Latest Age', 'Status'] as const;
+const HEADERS = ['Package', 'Type', 'Current', 'Minor', 'Major', 'Age', 'Latest Age', 'Status'] as const;
 
 export interface FormatTableOptions {
   color?: boolean;
@@ -49,7 +49,6 @@ function buildRow(dep: DependencyAnalysis, useColor: boolean): string[] {
     name,
     typeShort(dep.type),
     dep.current.version,
-    dep.latestPatch?.version ?? '-',
     dep.latestMinor?.version ?? '-',
     dep.latestMajor?.version ?? '-',
     formatAge(dep.ageInDays),

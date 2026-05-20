@@ -5,6 +5,7 @@ export interface MockPackage {
   name: string;
   versions: Record<string, { version: string; deprecated?: string }>;
   time: Record<string, string>;
+  status?: number;
 }
 
 export interface MockRegistry {
@@ -21,6 +22,11 @@ export async function startMockRegistry(packages: MockPackage[]): Promise<MockRe
     if (!pkg) {
       res.statusCode = 404;
       res.end('not found');
+      return;
+    }
+    if (pkg.status !== undefined && pkg.status >= 400) {
+      res.statusCode = pkg.status;
+      res.end('error');
       return;
     }
     res.setHeader('content-type', 'application/json');

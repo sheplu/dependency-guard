@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { Cache } from '../../src/cache.ts';
-import { RegistryClient } from '../../src/registry.ts';
+import { RegistryClient, RegistryHttpError } from '../../src/registry.ts';
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -41,6 +41,71 @@ describe('RegistryClient', () => {
     });
 
     await assert.rejects(() => client.getPackage('missing'), /Registry request failed.*404/);
+  });
+
+  it('throws RegistryHttpError carrying the HTTP status on 404', async () => {
+    const client = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      fetchImpl: (() =>
+        Promise.resolve(
+          new Response('not found', { status: 404, statusText: 'Not Found' }),
+        )) as typeof fetch,
+    });
+
+    await assert.rejects(
+      () => client.getPackage('missing'),
+      (err: unknown) =>
+        err instanceof RegistryHttpError &&
+        err instanceof Error &&
+        err.status === 404 &&
+        err.name === 'RegistryHttpError' &&
+        /Registry request failed for "missing": 404 Not Found/.test(err.message),
+    );
+  });
+
+  it('throws RegistryHttpError with status 401 on Unauthorized', async () => {
+    const client = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      fetchImpl: (() =>
+        Promise.resolve(
+          new Response('nope', { status: 401, statusText: 'Unauthorized' }),
+        )) as typeof fetch,
+    });
+
+    await assert.rejects(
+      () => client.getPackage('@private/foo'),
+      (err: unknown) => err instanceof RegistryHttpError && err.status === 401,
+    );
+  });
+
+  it('throws RegistryHttpError with status 403 on Forbidden', async () => {
+    const client = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      fetchImpl: (() =>
+        Promise.resolve(
+          new Response('nope', { status: 403, statusText: 'Forbidden' }),
+        )) as typeof fetch,
+    });
+
+    await assert.rejects(
+      () => client.getPackage('@private/foo'),
+      (err: unknown) => err instanceof RegistryHttpError && err.status === 403,
+    );
+  });
+
+  it('throws RegistryHttpError with status 500 on server error (not skippable)', async () => {
+    const client = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      fetchImpl: (() =>
+        Promise.resolve(
+          new Response('boom', { status: 500, statusText: 'Internal Server Error' }),
+        )) as typeof fetch,
+    });
+
+    await assert.rejects(
+      () => client.getPackage('demo'),
+      (err: unknown) => err instanceof RegistryHttpError && err.status === 500,
+    );
   });
 
   it('encodes scoped package names with the slash preserved', async () => {

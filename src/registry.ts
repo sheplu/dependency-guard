@@ -3,6 +3,15 @@ import type { RegistryPackageMetadata } from './types.ts';
 
 const DEFAULT_BASE_URL = 'https://registry.npmjs.org';
 
+export class RegistryHttpError extends Error {
+  readonly status: number;
+  constructor(name: string, status: number, statusText: string) {
+    super(`Registry request failed for "${name}": ${status} ${statusText}`);
+    this.name = 'RegistryHttpError';
+    this.status = status;
+  }
+}
+
 export interface RegistryClientOptions {
   baseUrl?: string;
   cache?: Cache;
@@ -32,7 +41,7 @@ export class RegistryClient {
       headers: { accept: 'application/json' },
     });
     if (!res.ok) {
-      throw new Error(`Registry request failed for "${name}": ${res.status} ${res.statusText}`);
+      throw new RegistryHttpError(name, res.status, res.statusText);
     }
     const body = (await res.json()) as {
       name?: string;

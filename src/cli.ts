@@ -441,6 +441,22 @@ function skippedSummary(report: AnalysisReport): string {
     );
   }
 
+  const notFound = report.skipped.filter((s) => s.reason === 'registry-not-found');
+  if (notFound.length > 0) {
+    const names = notFound.map((s) => s.name).join(', ');
+    lines.push(
+      `Skipped ${notFound.length} package(s) — registry returned 404 (not found): ${names}`,
+    );
+  }
+
+  const unauthorized = report.skipped.filter((s) => s.reason === 'registry-unauthorized');
+  if (unauthorized.length > 0) {
+    const entries = unauthorized.map((s) => `${s.name} (${s.status})`).join(', ');
+    lines.push(
+      `Skipped ${unauthorized.length} package(s) — registry returned 401/403 (unauthorized; private scope?): ${entries}`,
+    );
+  }
+
   return colorize(lines.join('\n'), 'yellow', useColor);
 }
 
