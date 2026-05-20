@@ -17,6 +17,7 @@ describe('typeShort', () => {
 describe('statusLabel', () => {
   it('returns the label for each updateType', () => {
     assert.match(statusLabel('up-to-date'), /Up to date/);
+    assert.match(statusLabel('patch'), /Patch/);
     assert.match(statusLabel('minor'), /Minor/);
     assert.match(statusLabel('major'), /Major/);
   });

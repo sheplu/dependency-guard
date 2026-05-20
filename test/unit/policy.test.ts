@@ -8,6 +8,7 @@ function dep(overrides: Partial<DependencyAnalysis>): DependencyAnalysis {
     name: 'demo',
     type: 'dependencies',
     current: { version: '1.0.0', publishedAt: null },
+    latestPatch: null,
     latestMinor: null,
     latestMajor: null,
     ageInDays: 30,
@@ -21,7 +22,7 @@ function dep(overrides: Partial<DependencyAnalysis>): DependencyAnalysis {
 
 function makeReport(deps: DependencyAnalysis[]): AnalysisReport {
   return {
-    summary: { total: deps.length, upToDate: 0, minorUpdates: 0, majorUpdates: 0 },
+    summary: { total: deps.length, upToDate: 0, patchUpdates: 0, minorUpdates: 0, majorUpdates: 0 },
     dependencies: deps,
     skipped: [],
   };
@@ -67,14 +68,54 @@ describe('evaluatePolicy', () => {
       assert.doesNotMatch(result.reasons[0], /c@/);
     });
 
-    it('any: aliased to minor (catches major + minor)', () => {
+    it('any: catches anything not up-to-date (major + minor + patch)', () => {
       const report = makeReport([
         dep({ name: 'a', updateType: 'major' }),
         dep({ name: 'b', updateType: 'minor' }),
+        dep({ name: 'c', updateType: 'patch' }),
+        dep({ name: 'd', updateType: 'up-to-date' }),
       ]);
       const result = evaluatePolicy(report, { failOnLevel: 'any', maxAgeDays: null });
       assert.equal(result.passed, false);
       assert.equal(result.reasons.length, 1);
+      assert.match(result.reasons[0], /a@1\.0\.0/);
+      assert.match(result.reasons[0], /b@1\.0\.0/);
+      assert.match(result.reasons[0], /c@1\.0\.0/);
+      assert.doesNotMatch(result.reasons[0], /d@/);
+    });
+
+    it('patch: catches anything not up-to-date (major + minor + patch)', () => {
+      const report = makeReport([
+        dep({ name: 'a', updateType: 'major' }),
+        dep({ name: 'b', updateType: 'minor' }),
+        dep({ name: 'c', updateType: 'patch' }),
+        dep({ name: 'd', updateType: 'up-to-date' }),
+      ]);
+      const result = evaluatePolicy(report, { failOnLevel: 'patch', maxAgeDays: null });
+      assert.equal(result.passed, false);
+      assert.match(result.reasons[0], /--fail-on patch/);
+      assert.match(result.reasons[0], /a@1\.0\.0/);
+      assert.match(result.reasons[0], /b@1\.0\.0/);
+      assert.match(result.reasons[0], /c@1\.0\.0/);
+      assert.doesNotMatch(result.reasons[0], /d@/);
+    });
+
+    it('minor: does NOT fail on patch-only deps (regression for the patch tier)', () => {
+      const report = makeReport([
+        dep({ name: 'a', updateType: 'patch' }),
+        dep({ name: 'b', updateType: 'up-to-date' }),
+      ]);
+      const result = evaluatePolicy(report, { failOnLevel: 'minor', maxAgeDays: null });
+      assert.equal(result.passed, true);
+    });
+
+    it('major: does NOT fail on patch or minor deps', () => {
+      const report = makeReport([
+        dep({ name: 'a', updateType: 'patch' }),
+        dep({ name: 'b', updateType: 'minor' }),
+      ]);
+      const result = evaluatePolicy(report, { failOnLevel: 'major', maxAgeDays: null });
+      assert.equal(result.passed, true);
     });
 
     it('uses singular phrasing for one offender', () => {

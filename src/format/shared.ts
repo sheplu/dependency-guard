@@ -39,6 +39,8 @@ export function statusLabel(updateType: UpdateType): string {
   switch (updateType) {
     case 'up-to-date':
       return '✓ Up to date';
+    case 'patch':
+      return '△ Patch';
     case 'minor':
       return '↑ Minor';
     case 'major':

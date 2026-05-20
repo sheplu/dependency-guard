@@ -37,35 +37,55 @@ describe('analyzeDependency', () => {
     assert.equal(result.updateType, 'up-to-date');
     assert.equal(result.latestMajor, null);
     assert.equal(result.latestMinor, null);
+    assert.equal(result.latestPatch, null);
   });
 
-  it('classifies as minor when newer minor exists in same major', () => {
+  it('classifies as patch when only a newer patch in same major.minor exists', () => {
     const result = analyzeDependency({
-      entry: makeEntry('1.0.0'),
+      entry: makeEntry('1.2.3'),
       metadata: makeMetadata({
-        '1.0.0': '2026-01-01T00:00:00Z',
-        '1.2.0': '2026-02-01T00:00:00Z',
+        '1.2.3': '2026-01-01T00:00:00Z',
+        '1.2.9': '2026-02-01T00:00:00Z',
+      }),
+      now: NOW,
+    });
+    assert.equal(result.updateType, 'patch');
+    assert.equal(result.latestPatch?.version, '1.2.9');
+    assert.equal(result.latestMinor, null);
+    assert.equal(result.latestMajor, null);
+  });
+
+  it('classifies as minor when newer minor exists in same major (minor wins over patch)', () => {
+    const result = analyzeDependency({
+      entry: makeEntry('1.2.3'),
+      metadata: makeMetadata({
+        '1.2.3': '2026-01-01T00:00:00Z',
+        '1.2.9': '2026-02-01T00:00:00Z',
+        '1.5.0': '2026-03-01T00:00:00Z',
       }),
       now: NOW,
     });
     assert.equal(result.updateType, 'minor');
-    assert.equal(result.latestMinor?.version, '1.2.0');
+    assert.equal(result.latestPatch?.version, '1.2.9');
+    assert.equal(result.latestMinor?.version, '1.5.0');
     assert.equal(result.latestMajor, null);
   });
 
-  it('classifies as major when newer major exists', () => {
+  it('classifies as major when newer major exists (all three latest fields populated)', () => {
     const result = analyzeDependency({
-      entry: makeEntry('1.0.0'),
+      entry: makeEntry('1.2.3'),
       metadata: makeMetadata({
-        '1.0.0': '2026-01-01T00:00:00Z',
-        '1.5.0': '2026-02-01T00:00:00Z',
-        '2.0.0': '2026-03-01T00:00:00Z',
+        '1.2.3': '2026-01-01T00:00:00Z',
+        '1.2.9': '2026-02-01T00:00:00Z',
+        '1.5.0': '2026-03-01T00:00:00Z',
+        '2.0.0': '2026-04-01T00:00:00Z',
       }),
       now: NOW,
     });
     assert.equal(result.updateType, 'major');
-    assert.equal(result.latestMajor?.version, '2.0.0');
+    assert.equal(result.latestPatch?.version, '1.2.9');
     assert.equal(result.latestMinor?.version, '1.5.0');
+    assert.equal(result.latestMajor?.version, '2.0.0');
   });
 
   it('ignores prereleases when picking latest', () => {
@@ -92,6 +112,7 @@ describe('analyzeDependency', () => {
     assert.equal(result.updateType, 'up-to-date');
     assert.equal(result.latestMajor, null);
     assert.equal(result.latestMinor, null);
+    assert.equal(result.latestPatch, null);
   });
 
   it('falls back to 0.0.0 when installed version is unparseable', () => {
@@ -210,13 +231,16 @@ describe('summarize', () => {
   it('counts each updateType bucket', () => {
     const summary = summarize([
       { updateType: 'up-to-date' } as never,
+      { updateType: 'patch' } as never,
+      { updateType: 'patch' } as never,
       { updateType: 'minor' } as never,
       { updateType: 'major' } as never,
       { updateType: 'major' } as never,
     ]);
     assert.deepEqual(summary, {
-      total: 4,
+      total: 6,
       upToDate: 1,
+      patchUpdates: 2,
       minorUpdates: 1,
       majorUpdates: 2,
     });

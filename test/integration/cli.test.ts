@@ -15,6 +15,53 @@ interface SpawnResult {
   stderr: string;
 }
 
+function startPatchRegistry() {
+  // express 4.18.2 (installed) has a 4.18.5 patch and a 4.21.0 minor available.
+  // lodash 4.17.20 (installed) has a 4.17.21 patch and 4.18.0 minor available.
+  // typescript 5.2.2 (installed) only has 5.3.3 (minor) — no patch.
+  return startMockRegistry([
+    {
+      name: 'express',
+      versions: {
+        '4.18.2': { version: '4.18.2' },
+        '4.18.5': { version: '4.18.5' },
+        '4.21.0': { version: '4.21.0' },
+        '5.0.1': { version: '5.0.1' },
+      },
+      time: {
+        '4.18.2': '2025-09-15T00:00:00Z',
+        '4.18.5': '2025-12-01T00:00:00Z',
+        '4.21.0': '2026-02-01T00:00:00Z',
+        '5.0.1': '2026-03-01T00:00:00Z',
+      },
+    },
+    {
+      name: 'lodash',
+      versions: {
+        '4.17.20': { version: '4.17.20' },
+        '4.17.21': { version: '4.17.21' },
+        '4.18.0': { version: '4.18.0' },
+      },
+      time: {
+        '4.17.20': '2024-01-01T00:00:00Z',
+        '4.17.21': '2024-06-01T00:00:00Z',
+        '4.18.0': '2025-01-01T00:00:00Z',
+      },
+    },
+    {
+      name: 'typescript',
+      versions: {
+        '5.2.2': { version: '5.2.2' },
+        '5.3.3': { version: '5.3.3' },
+      },
+      time: {
+        '5.2.2': '2026-01-01T00:00:00Z',
+        '5.3.3': '2026-04-01T00:00:00Z',
+      },
+    },
+  ]);
+}
+
 function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<SpawnResult> {
   return new Promise((resolveSpawn, reject) => {
     const child = spawn(process.execPath, [BIN, ...args], {
@@ -2205,6 +2252,221 @@ packages:
       } finally {
         await markersProject.cleanup();
         await aliasRegistry.close();
+      }
+    });
+  });
+
+  describe('with --update patch', () => {
+    it('--update patch rewrites only the patch upgrade, leaving minor-eligible deps alone', async () => {
+      const patchRegistry = await startPatchRegistry();
+      const patchProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-update-patch',
+          version: '1.0.0',
+          dependencies: {
+            express: '^4.18.0',
+            lodash: '^4.17.20',
+          },
+          devDependencies: { typescript: '^5.2.0' },
+        },
+        installed: {
+          express: '4.18.2',
+          lodash: '4.17.20',
+          typescript: '5.2.2',
+        },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            patchProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'patch',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: patchRegistry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const raw = await readFile(patchProject.packageJsonPath, 'utf8');
+        const pkg = JSON.parse(raw) as {
+          dependencies: Record<string, string>;
+          devDependencies: Record<string, string>;
+        };
+        assert.equal(pkg.dependencies.express, '^4.18.5');
+        assert.equal(pkg.dependencies.lodash, '^4.17.21');
+        // typescript has no patch upgrade — left alone
+        assert.equal(pkg.devDependencies.typescript, '^5.2.0');
+      } finally {
+        await patchProject.cleanup();
+        await patchRegistry.close();
+      }
+    });
+
+    it('--update patch --dry-run previews the patch bump without writing', async () => {
+      const patchRegistry = await startPatchRegistry();
+      const patchProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-update-patch-dry',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+      });
+      try {
+        const before = await readFile(patchProject.packageJsonPath, 'utf8');
+        const result = await runCli(
+          [
+            '--path',
+            patchProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'patch',
+            '--dry-run',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: patchRegistry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(result.stdout, /Would apply 1 update\(s\) at level "patch"/);
+        const after = await readFile(patchProject.packageJsonPath, 'utf8');
+        assert.equal(before, after);
+      } finally {
+        await patchProject.cleanup();
+        await patchRegistry.close();
+      }
+    });
+
+    it('--update minor falls back to a patch bump when no minor exists', async () => {
+      const patchOnlyRegistry = await startMockRegistry([
+        {
+          name: 'patch-only',
+          versions: {
+            '1.2.3': { version: '1.2.3' },
+            '1.2.9': { version: '1.2.9' },
+          },
+          time: {
+            '1.2.3': '2026-01-01T00:00:00Z',
+            '1.2.9': '2026-02-01T00:00:00Z',
+          },
+        },
+      ]);
+      const patchProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-fallback',
+          version: '1.0.0',
+          dependencies: { 'patch-only': '^1.2.3' },
+        },
+        installed: { 'patch-only': '1.2.3' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            patchProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: patchOnlyRegistry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const raw = await readFile(patchProject.packageJsonPath, 'utf8');
+        const pkg = JSON.parse(raw) as { dependencies: Record<string, string> };
+        assert.equal(pkg.dependencies['patch-only'], '^1.2.9');
+      } finally {
+        await patchProject.cleanup();
+        await patchOnlyRegistry.close();
+      }
+    });
+
+    it('--fail-on patch exits 2 when a dep has only a patch upgrade available', async () => {
+      const patchOnlyRegistry = await startMockRegistry([
+        {
+          name: 'patch-only',
+          versions: {
+            '1.2.3': { version: '1.2.3' },
+            '1.2.9': { version: '1.2.9' },
+          },
+          time: {
+            '1.2.3': '2026-01-01T00:00:00Z',
+            '1.2.9': '2026-02-01T00:00:00Z',
+          },
+        },
+      ]);
+      const patchProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-fail-on-patch',
+          version: '1.0.0',
+          dependencies: { 'patch-only': '^1.2.3' },
+        },
+        installed: { 'patch-only': '1.2.3' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            patchProject.packageJsonPath,
+            '--format',
+            'json',
+            '--fail-on',
+            'patch',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: patchOnlyRegistry.url },
+        );
+        assert.equal(result.exitCode, 2);
+        assert.match(result.stderr, /--fail-on patch/);
+        assert.match(result.stderr, /patch-only@1\.2\.3/);
+      } finally {
+        await patchProject.cleanup();
+        await patchOnlyRegistry.close();
+      }
+    });
+
+    it('--fail-on minor does NOT trip on patch-only deps (regression for the patch tier)', async () => {
+      const patchOnlyRegistry = await startMockRegistry([
+        {
+          name: 'patch-only',
+          versions: {
+            '1.2.3': { version: '1.2.3' },
+            '1.2.9': { version: '1.2.9' },
+          },
+          time: {
+            '1.2.3': '2026-01-01T00:00:00Z',
+            '1.2.9': '2026-02-01T00:00:00Z',
+          },
+        },
+      ]);
+      const patchProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-fail-on-minor-regression',
+          version: '1.0.0',
+          dependencies: { 'patch-only': '^1.2.3' },
+        },
+        installed: { 'patch-only': '1.2.3' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            patchProject.packageJsonPath,
+            '--format',
+            'json',
+            '--fail-on',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: patchOnlyRegistry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+      } finally {
+        await patchProject.cleanup();
+        await patchOnlyRegistry.close();
       }
     });
   });

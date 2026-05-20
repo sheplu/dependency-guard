@@ -6,12 +6,13 @@ import type { AnalysisReport } from '../../src/types.ts';
 describe('formatTable', () => {
   it('renders summary and table without colors when color: false', () => {
     const report: AnalysisReport = {
-      summary: { total: 2, upToDate: 1, minorUpdates: 0, majorUpdates: 1 },
+      summary: { total: 2, upToDate: 1, patchUpdates: 0, minorUpdates: 0, majorUpdates: 1 },
       dependencies: [
         {
           name: 'express',
           type: 'dependencies',
           current: { version: '4.18.2', publishedAt: null },
+          latestPatch: null,
           latestMinor: { version: '4.21.0', publishedAt: null },
           latestMajor: { version: '5.0.1', publishedAt: null },
           ageInDays: 245,
@@ -24,6 +25,7 @@ describe('formatTable', () => {
           name: 'lodash',
           type: 'dependencies',
           current: { version: '4.17.21', publishedAt: null },
+          latestPatch: null,
           latestMinor: null,
           latestMajor: null,
           ageInDays: 730,
@@ -44,19 +46,20 @@ describe('formatTable', () => {
     assert.match(out, /express/);
     assert.match(out, /lodash/);
     // Up-to-date row: Age and Latest Age are equal (signals an unmaintained but current dep)
-    assert.match(out, /4\.17\.21\s+│\s+-\s+│\s+-\s+│\s+2y\s+│\s+2y\s+│/);
+    assert.match(out, /4\.17\.21\s+│\s+-\s+│\s+-\s+│\s+-\s+│\s+2y\s+│\s+2y\s+│/);
     // eslint-disable-next-line no-control-regex
     assert.doesNotMatch(out, /\x1b\[/);
   });
 
   it('emits ANSI color codes for major / minor / up-to-date when color: true', () => {
     const report: AnalysisReport = {
-      summary: { total: 3, upToDate: 1, minorUpdates: 1, majorUpdates: 1 },
+      summary: { total: 3, upToDate: 1, patchUpdates: 0, minorUpdates: 1, majorUpdates: 1 },
       dependencies: [
         {
           name: 'a-major',
           type: 'dependencies',
           current: { version: '4.18.2', publishedAt: null },
+          latestPatch: null,
           latestMinor: { version: '4.21.0', publishedAt: null },
           latestMajor: { version: '5.0.1', publishedAt: null },
           ageInDays: 245,
@@ -69,6 +72,7 @@ describe('formatTable', () => {
           name: 'b-minor',
           type: 'devDependencies',
           current: { version: '5.2.2', publishedAt: null },
+          latestPatch: null,
           latestMinor: { version: '5.3.3', publishedAt: null },
           latestMajor: null,
           ageInDays: 120,
@@ -81,6 +85,7 @@ describe('formatTable', () => {
           name: 'c-uptodate',
           type: 'dependencies',
           current: { version: '4.17.21', publishedAt: null },
+          latestPatch: null,
           latestMinor: null,
           latestMajor: null,
           ageInDays: 730,
@@ -103,12 +108,13 @@ describe('formatTable', () => {
 
   it('omits the Summary block when quiet: true', () => {
     const report: AnalysisReport = {
-      summary: { total: 1, upToDate: 1, minorUpdates: 0, majorUpdates: 0 },
+      summary: { total: 1, upToDate: 1, patchUpdates: 0, minorUpdates: 0, majorUpdates: 0 },
       dependencies: [
         {
           name: 'lodash',
           type: 'dependencies',
           current: { version: '4.17.21', publishedAt: null },
+          latestPatch: null,
           latestMinor: null,
           latestMajor: null,
           ageInDays: 730,
@@ -128,12 +134,13 @@ describe('formatTable', () => {
 
   it('prefixes transitive rows with ↳', () => {
     const report: AnalysisReport = {
-      summary: { total: 2, upToDate: 2, minorUpdates: 0, majorUpdates: 0 },
+      summary: { total: 2, upToDate: 2, patchUpdates: 0, minorUpdates: 0, majorUpdates: 0 },
       dependencies: [
         {
           name: 'express',
           type: 'dependencies',
           current: { version: '4.18.2', publishedAt: null },
+          latestPatch: null,
           latestMinor: null,
           latestMajor: null,
           ageInDays: 30,
@@ -146,6 +153,7 @@ describe('formatTable', () => {
           name: 'body-parser',
           type: 'dependencies',
           current: { version: '1.20.0', publishedAt: null },
+          latestPatch: null,
           latestMinor: null,
           latestMajor: null,
           ageInDays: 60,
@@ -164,12 +172,13 @@ describe('formatTable', () => {
 
   it('appends a ⚠ marker after deprecated package names', () => {
     const report: AnalysisReport = {
-      summary: { total: 1, upToDate: 1, minorUpdates: 0, majorUpdates: 0 },
+      summary: { total: 1, upToDate: 1, patchUpdates: 0, minorUpdates: 0, majorUpdates: 0 },
       dependencies: [
         {
           name: 'request',
           type: 'dependencies',
           current: { version: '2.88.2', publishedAt: null },
+          latestPatch: null,
           latestMinor: null,
           latestMajor: null,
           ageInDays: 1500,
@@ -187,12 +196,13 @@ describe('formatTable', () => {
 
   it('renders rows for the resolutions and pnpm.overrides types with their short labels', () => {
     const report: AnalysisReport = {
-      summary: { total: 2, upToDate: 2, minorUpdates: 0, majorUpdates: 0 },
+      summary: { total: 2, upToDate: 2, patchUpdates: 0, minorUpdates: 0, majorUpdates: 0 },
       dependencies: [
         {
           name: 'yarn-pin',
           type: 'resolutions',
           current: { version: '1.0.0', publishedAt: null },
+          latestPatch: null,
           latestMinor: null,
           latestMajor: null,
           ageInDays: 10,
@@ -205,6 +215,7 @@ describe('formatTable', () => {
           name: 'pnpm-pin',
           type: 'pnpm.overrides',
           current: { version: '2.0.0', publishedAt: null },
+          latestPatch: null,
           latestMinor: null,
           latestMajor: null,
           ageInDays: 20,
@@ -221,9 +232,36 @@ describe('formatTable', () => {
     assert.match(out, /pnpm-pin\s+│\s+pnpm\s+│/);
   });
 
+  it('renders the Patch column and the Patch updates summary line', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 0, patchUpdates: 1, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'express',
+          type: 'dependencies',
+          current: { version: '4.18.2', publishedAt: null },
+          latestPatch: { version: '4.18.9', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 245,
+          latestAgeInDays: 100,
+          updateType: 'patch',
+          deprecated: null,
+          transitive: false,
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatTable(report, { color: false });
+    assert.match(out, /Patch updates: 1/);
+    assert.match(out, /│ Package\s+│ Type\s+│ Current\s+│ Patch\s+│ Minor\s+│ Major\s+│/);
+    assert.match(out, /express\s+│\s+prod\s+│\s+4\.18\.2\s+│\s+4\.18\.9\s+│\s+-\s+│\s+-\s+│/);
+    assert.match(out, /△ Patch\s+│/);
+  });
+
   it('defaults color to TTY detection when option is omitted', () => {
     const report: AnalysisReport = {
-      summary: { total: 0, upToDate: 0, minorUpdates: 0, majorUpdates: 0 },
+      summary: { total: 0, upToDate: 0, patchUpdates: 0, minorUpdates: 0, majorUpdates: 0 },
       dependencies: [],
       skipped: [],
     };

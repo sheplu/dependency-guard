@@ -31,6 +31,7 @@ export function analyzeDependency({ entry, metadata, now }: AnalyzeArgs): Depend
       name: entry.name,
       type: entry.type,
       current: toVersionInfo(current.raw, metadata),
+      latestPatch: null,
       latestMinor: null,
       latestMajor: null,
       ageInDays: currentAge,
@@ -42,16 +43,27 @@ export function analyzeDependency({ entry, metadata, now }: AnalyzeArgs): Depend
   }
 
   const sameMajor = stableVersions.filter((v) => v.major === current.major);
+  const samePatch = sameMajor.filter((v) => v.minor === current.minor);
   const latestMinorVersion = maxVersion(sameMajor);
+  const latestPatchVersion = maxVersion(samePatch);
 
-  const hasNewerMinor = latestMinorVersion !== null && compare(latestMinorVersion, current) > 0;
+  const hasNewerPatch = latestPatchVersion !== null && compare(latestPatchVersion, current) > 0;
+  const hasNewerMinor =
+    latestMinorVersion !== null && latestMinorVersion.minor > current.minor;
   const hasNewerMajor = latestMajorVersion.major > current.major;
-  const updateType: UpdateType = hasNewerMajor ? 'major' : hasNewerMinor ? 'minor' : 'up-to-date';
+  const updateType: UpdateType = hasNewerMajor
+    ? 'major'
+    : hasNewerMinor
+      ? 'minor'
+      : hasNewerPatch
+        ? 'patch'
+        : 'up-to-date';
 
   return {
     name: entry.name,
     type: entry.type,
     current: toVersionInfo(current.raw, metadata),
+    latestPatch: hasNewerPatch ? toVersionInfo(latestPatchVersion!.raw, metadata) : null,
     latestMinor: hasNewerMinor ? toVersionInfo(latestMinorVersion!.raw, metadata) : null,
     latestMajor: hasNewerMajor ? toVersionInfo(latestMajorVersion.raw, metadata) : null,
     ageInDays: ageInDays(metadata.time[current.raw] ?? null, now),
@@ -70,11 +82,13 @@ export function summarize(analyses: ReadonlyArray<DependencyAnalysis>): Analysis
   const summary: AnalysisSummary = {
     total: analyses.length,
     upToDate: 0,
+    patchUpdates: 0,
     minorUpdates: 0,
     majorUpdates: 0,
   };
   for (const a of analyses) {
     if (a.updateType === 'up-to-date') summary.upToDate++;
+    else if (a.updateType === 'patch') summary.patchUpdates++;
     else if (a.updateType === 'minor') summary.minorUpdates++;
     else if (a.updateType === 'major') summary.majorUpdates++;
   }

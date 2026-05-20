@@ -14,15 +14,15 @@ export type SkippedReason =
   | 'override-removal'
   | 'override-descriptor';
 
-export type UpdateType = 'up-to-date' | 'minor' | 'major';
+export type UpdateType = 'up-to-date' | 'patch' | 'minor' | 'major';
 
 export type OutputFormat = 'table' | 'json' | 'markdown';
 
-export type FailOnLevel = 'major' | 'minor' | 'any' | 'deprecated';
+export type FailOnLevel = 'major' | 'minor' | 'patch' | 'any' | 'deprecated';
 
 export type SortField = 'age' | 'status' | 'name';
 
-export type UpdateLevel = 'minor' | 'major';
+export type UpdateLevel = 'patch' | 'minor' | 'major';
 
 export interface VersionInfo {
   version: string;
@@ -33,6 +33,7 @@ export interface DependencyAnalysis {
   name: string;
   type: DependencyType;
   current: VersionInfo;
+  latestPatch: VersionInfo | null;
   latestMinor: VersionInfo | null;
   latestMajor: VersionInfo | null;
   ageInDays: number | null;
@@ -45,6 +46,7 @@ export interface DependencyAnalysis {
 export interface AnalysisSummary {
   total: number;
   upToDate: number;
+  patchUpdates: number;
   minorUpdates: number;
   majorUpdates: number;
 }

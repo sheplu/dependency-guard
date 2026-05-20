@@ -26,7 +26,7 @@ export function planUpdates(
   for (const dep of report.dependencies) {
     if (dep.transitive) continue;
     if (isOverrideType(dep.type)) continue;
-    const target = pickTarget(dep.latestMinor, dep.latestMajor, level);
+    const target = pickTarget(dep.latestPatch, dep.latestMinor, dep.latestMajor, level);
     if (!target) continue;
     if (target.version === dep.current.version) continue;
 
@@ -44,12 +44,14 @@ export function planUpdates(
 }
 
 function pickTarget(
+  latestPatch: VersionInfo | null,
   latestMinor: VersionInfo | null,
   latestMajor: VersionInfo | null,
   level: UpdateLevel,
 ): VersionInfo | null {
-  if (level === 'major') return latestMajor ?? latestMinor;
-  return latestMinor;
+  if (level === 'major') return latestMajor ?? latestMinor ?? latestPatch;
+  if (level === 'minor') return latestMinor ?? latestPatch;
+  return latestPatch;
 }
 
 export function applyRange(oldSpec: string, version: string): string {

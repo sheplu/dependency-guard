@@ -18,6 +18,7 @@ function dep(overrides: Partial<DependencyAnalysis>): DependencyAnalysis {
     name: 'demo',
     type: 'dependencies',
     current: { version: '1.0.0', publishedAt: null },
+    latestPatch: null,
     latestMinor: null,
     latestMajor: null,
     ageInDays: null,
@@ -31,7 +32,7 @@ function dep(overrides: Partial<DependencyAnalysis>): DependencyAnalysis {
 
 function makeReport(deps: DependencyAnalysis[]): AnalysisReport {
   return {
-    summary: { total: deps.length, upToDate: 0, minorUpdates: 0, majorUpdates: 0 },
+    summary: { total: deps.length, upToDate: 0, patchUpdates: 0, minorUpdates: 0, majorUpdates: 0 },
     dependencies: deps,
     skipped: [],
   };
@@ -177,6 +178,85 @@ describe('planUpdates', () => {
     const updates = planUpdates(report, 'minor', new Map());
     assert.equal(updates[0].oldSpec, '1.0.0');
     assert.equal(updates[0].newSpec, '1.2.0');
+  });
+
+  it('level "patch" picks latestPatch and skips deps with no patch update', () => {
+    const report = makeReport([
+      dep({
+        name: 'a',
+        current: { version: '1.2.3', publishedAt: null },
+        latestPatch: { version: '1.2.9', publishedAt: null },
+        latestMinor: { version: '1.5.0', publishedAt: null },
+        updateType: 'minor',
+      }),
+      dep({
+        name: 'b',
+        current: { version: '2.0.0', publishedAt: null },
+        latestPatch: null,
+        updateType: 'up-to-date',
+      }),
+    ]);
+    const specs = new Map([['a', '^1.2.3'], ['b', '2.0.0']]);
+    const updates = planUpdates(report, 'patch', specs);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].name, 'a');
+    assert.equal(updates[0].to, '1.2.9');
+    assert.equal(updates[0].newSpec, '^1.2.9');
+  });
+
+  it('level "patch" leaves alone deps where only minor or major upgrades exist', () => {
+    const report = makeReport([
+      dep({
+        name: 'minor-only',
+        current: { version: '1.0.0', publishedAt: null },
+        latestPatch: null,
+        latestMinor: { version: '1.5.0', publishedAt: null },
+        updateType: 'minor',
+      }),
+      dep({
+        name: 'major-only',
+        current: { version: '4.0.0', publishedAt: null },
+        latestPatch: null,
+        latestMajor: { version: '5.0.0', publishedAt: null },
+        updateType: 'major',
+      }),
+    ]);
+    const specs = new Map([['minor-only', '^1.0.0'], ['major-only', '^4.0.0']]);
+    const updates = planUpdates(report, 'patch', specs);
+    assert.deepEqual(updates, []);
+  });
+
+  it('level "minor" falls back to latestPatch when no minor exists', () => {
+    const report = makeReport([
+      dep({
+        name: 'a',
+        current: { version: '1.2.3', publishedAt: null },
+        latestPatch: { version: '1.2.9', publishedAt: null },
+        latestMinor: null,
+        updateType: 'patch',
+      }),
+    ]);
+    const specs = new Map([['a', '^1.2.3']]);
+    const updates = planUpdates(report, 'minor', specs);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].to, '1.2.9');
+  });
+
+  it('level "major" falls back to latestPatch when no major or minor exists', () => {
+    const report = makeReport([
+      dep({
+        name: 'a',
+        current: { version: '1.2.3', publishedAt: null },
+        latestPatch: { version: '1.2.9', publishedAt: null },
+        latestMinor: null,
+        latestMajor: null,
+        updateType: 'patch',
+      }),
+    ]);
+    const specs = new Map([['a', '^1.2.3']]);
+    const updates = planUpdates(report, 'major', specs);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].to, '1.2.9');
   });
 
   it('skips when the chosen target equals the current version', () => {
