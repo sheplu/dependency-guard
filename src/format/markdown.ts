@@ -12,12 +12,13 @@ export function formatMarkdown(report: AnalysisReport, opts: FormatMarkdownOptio
     lines.push('## Dependency Report', '');
     lines.push(`- Total: ${report.summary.total}`);
     lines.push(`- Up to date: ${report.summary.upToDate}`);
+    lines.push(`- Patch updates: ${report.summary.patchUpdates}`);
     lines.push(`- Minor updates: ${report.summary.minorUpdates}`);
     lines.push(`- Major updates: ${report.summary.majorUpdates}`);
     lines.push('');
   }
-  lines.push('| Package | Type | Current | Minor | Major | Age | Latest Age | Status |');
-  lines.push('|---------|------|---------|-------|-------|-----|------------|--------|');
+  lines.push('| Package | Type | Current | Patch | Minor | Major | Age | Latest Age | Status |');
+  lines.push('|---------|------|---------|-------|-------|-------|-----|------------|--------|');
   for (const dep of report.dependencies) {
     lines.push(`| ${row(dep)} |`);
   }
@@ -31,6 +32,7 @@ function row(dep: DependencyAnalysis): string {
     name,
     typeShort(dep.type),
     dep.current.version,
+    dep.latestPatch?.version ?? '-',
     dep.latestMinor?.version ?? '-',
     dep.latestMajor?.version ?? '-',
     formatAge(dep.ageInDays),

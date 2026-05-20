@@ -73,14 +73,20 @@ describe('cli.run', () => {
   });
 
   it('rejects --fail-on with an unknown level', async () => {
-    const result = await run(['--fail-on', 'patch']);
+    const result = await run(['--fail-on', 'totally-bogus']);
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /Invalid --fail-on/);
   });
 
-  it('lists "deprecated" as an accepted --fail-on level in help text', async () => {
+  it('rejects --fail-on with a similar-looking but invalid level (regression for truthy-string bug)', async () => {
+    const result = await run(['--fail-on', 'deprecate']);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Invalid --fail-on/);
+  });
+
+  it('lists "deprecated" and "patch" as accepted --fail-on levels in help text', async () => {
     const result = await run(['--help']);
-    assert.match(result.stdout, /major \| minor \| any \| deprecated/);
+    assert.match(result.stdout, /major \| minor \| patch \| any \| deprecated/);
   });
 
   it('lists --registry in help text', async () => {
@@ -113,9 +119,14 @@ describe('cli.run', () => {
   });
 
   it('rejects --update with an unknown level', async () => {
-    const result = await run(['--update', 'patch']);
+    const result = await run(['--update', 'totally-bogus']);
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /Invalid --update/);
+  });
+
+  it('lists "patch" as an accepted --update level in help text', async () => {
+    const result = await run(['--help']);
+    assert.match(result.stdout, /patch \| minor \| major/);
   });
 
   it('rejects --max-age with non-integer value', async () => {

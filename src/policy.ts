@@ -55,6 +55,7 @@ export function evaluatePolicy(
 
 function violatesLevel(updateType: UpdateType, level: Exclude<FailOnLevel, 'deprecated'>): boolean {
   if (level === 'major') return updateType === 'major';
-  // 'minor' and 'any' both fail on anything that isn't up-to-date
-  return updateType === 'major' || updateType === 'minor';
+  if (level === 'minor') return updateType === 'major' || updateType === 'minor';
+  // 'patch' and 'any' both fail on anything that isn't up-to-date
+  return updateType !== 'up-to-date';
 }

@@ -36,13 +36,13 @@ Options:
       --cache-clear          Clear the registry cache directory and exit
       --cache-ttl <minutes>  Cache TTL in minutes (default: 60)
       --fail-on <level>      Exit 2 if any dependency needs an upgrade at this level
-                             (major | minor | any | deprecated)
+                             (major | minor | patch | any | deprecated)
       --max-age <days>       Exit 2 if any installed version is older than N days
       --sort <field>         Sort by age, status, or name (default: type then name)
       --registry <url>       Registry URL (default: https://registry.npmjs.org;
                              also via DEPENDENCY_GUARD_REGISTRY_URL env var)
       --update <level>       Rewrite package.json with the chosen upgrades
-                             (minor | major); leaves up-to-date deps alone
+                             (patch | minor | major); leaves up-to-date deps alone
       --dry-run              With --update, preview the changes without writing
   -h, --help                 Show help
   -v, --version              Show version number
@@ -159,7 +159,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
       return {
         exitCode: 1,
         stdout: '',
-        stderr: `Invalid --fail-on: ${failOnRaw} (expected one of: major, minor, any, deprecated)\n`,
+        stderr: `Invalid --fail-on: ${failOnRaw} (expected one of: major, minor, patch, any, deprecated)\n`,
       };
     }
     failOnLevel = failOnRaw;
@@ -212,7 +212,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
       return {
         exitCode: 1,
         stdout: '',
-        stderr: `Invalid --update: ${updateRaw} (expected one of: minor, major)\n`,
+        stderr: `Invalid --update: ${updateRaw} (expected one of: patch, minor, major)\n`,
       };
     }
     updateLevel = updateRaw;
@@ -354,7 +354,13 @@ function flattenCsv(values: ReadonlyArray<string>): string[] {
 }
 
 function isFailOnLevel(value: string): value is FailOnLevel {
-  return value === 'major' || value === 'minor' || value === 'any' || value === 'deprecated';
+  return (
+    value === 'major' ||
+    value === 'minor' ||
+    value === 'patch' ||
+    value === 'any' ||
+    value === 'deprecated'
+  );
 }
 
 function isSortField(value: string): value is SortField {
@@ -362,7 +368,7 @@ function isSortField(value: string): value is SortField {
 }
 
 function isUpdateLevel(value: string): value is UpdateLevel {
-  return value === 'minor' || value === 'major';
+  return value === 'patch' || value === 'minor' || value === 'major';
 }
 
 function formatUpdateSummary(

@@ -118,7 +118,8 @@ function matchScope(name: string, ignored: ReadonlyArray<string>): string | null
 const STATUS_ORDER: Record<UpdateType, number> = {
   major: 0,
   minor: 1,
-  'up-to-date': 2,
+  patch: 2,
+  'up-to-date': 3,
 };
 
 function sortAnalyses(deps: DependencyAnalysis[], field: SortField): DependencyAnalysis[] {
