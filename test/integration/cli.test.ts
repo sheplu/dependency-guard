@@ -2591,4 +2591,711 @@ packages:
       }
     });
   });
+
+  describe('with resolutions', () => {
+    it('analyzes top-level yarn resolutions as their own bucket', async () => {
+      const resolProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-resolutions',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          resolutions: { express: '4.18.2' },
+        },
+        installed: { lodash: '4.17.21', express: '4.18.2' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            resolProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        const express = report.dependencies.find(
+          (d: { name: string }) => d.name === 'express',
+        );
+        assert.equal(express.type, 'resolutions');
+        assert.equal(express.current.version, '4.18.2');
+      } finally {
+        await resolProject.cleanup();
+      }
+    });
+
+    it('surfaces parent/child path-specific resolutions in the skipped block', async () => {
+      const resolProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-resol-path',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          resolutions: { 'webpack/memory-fs': '0.4.1' },
+        },
+        installed: { lodash: '4.17.21' },
+      });
+      try {
+        const jsonResult = await runCli(
+          [
+            '--path',
+            resolProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(jsonResult.exitCode, 0, jsonResult.stderr);
+        const report = JSON.parse(jsonResult.stdout);
+        assert.deepEqual(report.skipped, [
+          {
+            name: 'webpack/memory-fs',
+            type: 'resolutions',
+            reason: 'override-path-specific',
+          },
+        ]);
+
+        const tableResult = await runCli(
+          [
+            '--path',
+            resolProject.packageJsonPath,
+            '--format',
+            'table',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(tableResult.exitCode, 0, tableResult.stderr);
+        assert.match(
+          tableResult.stdout,
+          /path-specific override\(s\): webpack\/memory-fs/,
+        );
+      } finally {
+        await resolProject.cleanup();
+      }
+    });
+
+    it('surfaces npm: descriptor resolutions as override-descriptor', async () => {
+      const resolProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-resol-descriptor',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          resolutions: { aliased: 'npm:foo@1.0.0' },
+        },
+        installed: { lodash: '4.17.21' },
+      });
+      try {
+        const jsonResult = await runCli(
+          [
+            '--path',
+            resolProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(jsonResult.exitCode, 0, jsonResult.stderr);
+        const report = JSON.parse(jsonResult.stdout);
+        assert.deepEqual(report.skipped, [
+          { name: 'aliased', type: 'resolutions', reason: 'override-descriptor' },
+        ]);
+
+        const tableResult = await runCli(
+          [
+            '--path',
+            resolProject.packageJsonPath,
+            '--format',
+            'table',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(tableResult.exitCode, 0, tableResult.stderr);
+        assert.match(tableResult.stdout, /non-semver pin\(s\).*aliased/);
+      } finally {
+        await resolProject.cleanup();
+      }
+    });
+
+    it('--update minor leaves the resolutions block byte-identical', async () => {
+      const resolProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-resol-noupdate',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+          resolutions: { express: '4.18.2' },
+        },
+        installed: { express: '4.18.2' },
+      });
+      try {
+        const before = JSON.parse(
+          await readFile(resolProject.packageJsonPath, 'utf8'),
+        ) as { resolutions: Record<string, string> };
+        const result = await runCli(
+          [
+            '--path',
+            resolProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const after = JSON.parse(
+          await readFile(resolProject.packageJsonPath, 'utf8'),
+        ) as { dependencies: Record<string, string>; resolutions: Record<string, string> };
+        assert.equal(after.dependencies.express, '^4.21.0');
+        assert.deepEqual(after.resolutions, before.resolutions);
+      } finally {
+        await resolProject.cleanup();
+      }
+    });
+
+    it('--resolutions flag scopes the report to resolutions only', async () => {
+      const resolProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-resol-only',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          resolutions: { express: '4.18.2' },
+        },
+        installed: { lodash: '4.17.21', express: '4.18.2' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            resolProject.packageJsonPath,
+            '--format',
+            'json',
+            '--resolutions',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        assert.equal(report.dependencies.length, 1);
+        assert.equal(report.dependencies[0].name, 'express');
+        assert.equal(report.dependencies[0].type, 'resolutions');
+      } finally {
+        await resolProject.cleanup();
+      }
+    });
+
+    it('--ignore-scope skips scoped resolutions with reason "ignored-scope"', async () => {
+      const resolProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-resol-ignore-scope',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          resolutions: { '@private/pinned': '1.0.0' },
+        },
+        installed: { lodash: '4.17.21' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            resolProject.packageJsonPath,
+            '--format',
+            'json',
+            '--ignore-scope',
+            '@private',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        assert.deepEqual(
+          report.dependencies.map((d: { name: string }) => d.name),
+          ['lodash'],
+        );
+        assert.deepEqual(report.skipped, [
+          {
+            name: '@private/pinned',
+            type: 'resolutions',
+            reason: 'ignored-scope',
+            scope: '@private',
+          },
+        ]);
+      } finally {
+        await resolProject.cleanup();
+      }
+    });
+
+    it('--include-transitive does not expand resolutions via the lockfile', async () => {
+      const resolProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-resol-transitive',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          resolutions: { express: '4.18.2' },
+        },
+        installed: { lodash: '4.17.21', express: '4.18.2' },
+        packageLock: {
+          lockfileVersion: 3,
+          packages: {
+            'node_modules/lodash': { version: '4.17.21' },
+            'node_modules/express': {
+              version: '4.18.2',
+              dependencies: { 'body-parser': '1.20.0' },
+            },
+            'node_modules/body-parser': { version: '1.20.0' },
+          },
+        },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            resolProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        const names = report.dependencies
+          .map((d: { name: string }) => d.name)
+          .toSorted();
+        assert.deepEqual(names, ['express', 'lodash']);
+        const express = report.dependencies.find(
+          (d: { name: string }) => d.name === 'express',
+        );
+        assert.equal(express.type, 'resolutions');
+        assert.equal(express.transitive, false);
+      } finally {
+        await resolProject.cleanup();
+      }
+    });
+
+    it('--fail-on minor exits 2 when a stale resolution has a minor upgrade', async () => {
+      const resolProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-resol-fail-on',
+          version: '1.0.0',
+          resolutions: { express: '4.18.2' },
+        },
+        installed: { express: '4.18.2' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            resolProject.packageJsonPath,
+            '--format',
+            'json',
+            '--fail-on',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 2);
+        assert.match(result.stderr, /express@4\.18\.2/);
+      } finally {
+        await resolProject.cleanup();
+      }
+    });
+  });
+
+  describe('with pnpm overrides', () => {
+    it('analyzes top-level pnpm.overrides as their own bucket', async () => {
+      const pnpmProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-pnpm-overrides',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          pnpm: { overrides: { express: '4.18.2' } },
+        },
+        installed: { lodash: '4.17.21', express: '4.18.2' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            pnpmProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        const express = report.dependencies.find(
+          (d: { name: string }) => d.name === 'express',
+        );
+        assert.equal(express.type, 'pnpm.overrides');
+        assert.equal(express.current.version, '4.18.2');
+      } finally {
+        await pnpmProject.cleanup();
+      }
+    });
+
+    it('surfaces parent>child path-specific pnpm overrides in the skipped block', async () => {
+      const pnpmProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-pnpm-path',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          pnpm: { overrides: { 'foo>bar': '1.0.0' } },
+        },
+        installed: { lodash: '4.17.21' },
+      });
+      try {
+        const jsonResult = await runCli(
+          [
+            '--path',
+            pnpmProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(jsonResult.exitCode, 0, jsonResult.stderr);
+        const report = JSON.parse(jsonResult.stdout);
+        assert.deepEqual(report.skipped, [
+          {
+            name: 'foo>bar',
+            type: 'pnpm.overrides',
+            reason: 'override-path-specific',
+          },
+        ]);
+
+        const tableResult = await runCli(
+          [
+            '--path',
+            pnpmProject.packageJsonPath,
+            '--format',
+            'table',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(tableResult.exitCode, 0, tableResult.stderr);
+        assert.match(tableResult.stdout, /path-specific override\(s\): foo>bar/);
+      } finally {
+        await pnpmProject.cleanup();
+      }
+    });
+
+    it('surfaces npm: descriptor pnpm overrides as override-descriptor', async () => {
+      const pnpmProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-pnpm-descriptor',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          pnpm: { overrides: { aliased: 'npm:foo@1.0.0' } },
+        },
+        installed: { lodash: '4.17.21' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            pnpmProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        assert.deepEqual(report.skipped, [
+          { name: 'aliased', type: 'pnpm.overrides', reason: 'override-descriptor' },
+        ]);
+      } finally {
+        await pnpmProject.cleanup();
+      }
+    });
+
+    it('surfaces a "-" pnpm override as override-removal', async () => {
+      const pnpmProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-pnpm-removal',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          pnpm: { overrides: { 'removed-dep': '-' } },
+        },
+        installed: { lodash: '4.17.21' },
+      });
+      try {
+        const jsonResult = await runCli(
+          [
+            '--path',
+            pnpmProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(jsonResult.exitCode, 0, jsonResult.stderr);
+        const report = JSON.parse(jsonResult.stdout);
+        assert.deepEqual(report.skipped, [
+          { name: 'removed-dep', type: 'pnpm.overrides', reason: 'override-removal' },
+        ]);
+
+        const tableResult = await runCli(
+          [
+            '--path',
+            pnpmProject.packageJsonPath,
+            '--format',
+            'table',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(tableResult.exitCode, 0, tableResult.stderr);
+        assert.match(tableResult.stdout, /removal pin\(s\).*removed-dep/);
+      } finally {
+        await pnpmProject.cleanup();
+      }
+    });
+
+    it('surfaces a "$name" pnpm override as override-reference', async () => {
+      const pnpmProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-pnpm-ref',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          pnpm: { overrides: { 'ref-dep': '$lodash' } },
+        },
+        installed: { lodash: '4.17.21' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            pnpmProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        assert.deepEqual(report.skipped, [
+          { name: 'ref-dep', type: 'pnpm.overrides', reason: 'override-reference' },
+        ]);
+      } finally {
+        await pnpmProject.cleanup();
+      }
+    });
+
+    it('--update minor leaves the pnpm.overrides block byte-identical', async () => {
+      const pnpmProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-pnpm-noupdate',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+          pnpm: { overrides: { express: '4.18.2' } },
+        },
+        installed: { express: '4.18.2' },
+      });
+      try {
+        const before = JSON.parse(
+          await readFile(pnpmProject.packageJsonPath, 'utf8'),
+        ) as { pnpm: { overrides: Record<string, string> } };
+        const result = await runCli(
+          [
+            '--path',
+            pnpmProject.packageJsonPath,
+            '--format',
+            'json',
+            '--update',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const after = JSON.parse(
+          await readFile(pnpmProject.packageJsonPath, 'utf8'),
+        ) as {
+          dependencies: Record<string, string>;
+          pnpm: { overrides: Record<string, string> };
+        };
+        assert.equal(after.dependencies.express, '^4.21.0');
+        assert.deepEqual(after.pnpm.overrides, before.pnpm.overrides);
+      } finally {
+        await pnpmProject.cleanup();
+      }
+    });
+
+    it('--pnpm-overrides flag scopes the report to pnpm.overrides only', async () => {
+      const pnpmProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-pnpm-only',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          pnpm: { overrides: { express: '4.18.2' } },
+        },
+        installed: { lodash: '4.17.21', express: '4.18.2' },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            pnpmProject.packageJsonPath,
+            '--format',
+            'json',
+            '--pnpm-overrides',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        assert.equal(report.dependencies.length, 1);
+        assert.equal(report.dependencies[0].name, 'express');
+        assert.equal(report.dependencies[0].type, 'pnpm.overrides');
+      } finally {
+        await pnpmProject.cleanup();
+      }
+    });
+
+    it('--include-transitive does not expand pnpm.overrides via the lockfile', async () => {
+      const pnpmProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-pnpm-transitive',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          pnpm: { overrides: { express: '4.18.2' } },
+        },
+        installed: { lodash: '4.17.21', express: '4.18.2' },
+        packageLock: {
+          lockfileVersion: 3,
+          packages: {
+            'node_modules/lodash': { version: '4.17.21' },
+            'node_modules/express': {
+              version: '4.18.2',
+              dependencies: { 'body-parser': '1.20.0' },
+            },
+            'node_modules/body-parser': { version: '1.20.0' },
+          },
+        },
+      });
+      try {
+        const result = await runCli(
+          [
+            '--path',
+            pnpmProject.packageJsonPath,
+            '--format',
+            'json',
+            '--include-transitive',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        const names = report.dependencies
+          .map((d: { name: string }) => d.name)
+          .toSorted();
+        assert.deepEqual(names, ['express', 'lodash']);
+        const express = report.dependencies.find(
+          (d: { name: string }) => d.name === 'express',
+        );
+        assert.equal(express.type, 'pnpm.overrides');
+        assert.equal(express.transitive, false);
+      } finally {
+        await pnpmProject.cleanup();
+      }
+    });
+  });
+
+  describe('with mixed pin sources', () => {
+    it('audits dependencies, overrides, resolutions, and pnpm.overrides together; --update leaves all three pin buckets byte-identical', async () => {
+      const mixedProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-mixed',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+          overrides: { lodash: '4.17.21' },
+          resolutions: { typescript: '5.2.2' },
+          pnpm: { overrides: { express: '4.18.2' } },
+        },
+        installed: {
+          express: '4.18.2',
+          lodash: '4.17.21',
+          typescript: '5.2.2',
+        },
+      });
+      try {
+        const before = JSON.parse(
+          await readFile(mixedProject.packageJsonPath, 'utf8'),
+        ) as {
+          overrides: Record<string, string>;
+          resolutions: Record<string, string>;
+          pnpm: { overrides: Record<string, string> };
+        };
+        // First pass: read-only JSON to verify all four pin sources show up.
+        const reportResult = await runCli(
+          [
+            '--path',
+            mixedProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(reportResult.exitCode, 0, reportResult.stderr);
+        const report = JSON.parse(reportResult.stdout);
+        const keys = new Set(
+          (report.dependencies as Array<{ name: string; type: string }>).map(
+            (d) => `${d.type}:${d.name}`,
+          ),
+        );
+        assert.ok(keys.has('dependencies:express'));
+        assert.ok(keys.has('overrides:lodash'));
+        assert.ok(keys.has('resolutions:typescript'));
+        assert.ok(keys.has('pnpm.overrides:express'));
+
+        // Second pass: --update minor and verify pin buckets byte-identical.
+        const updateResult = await runCli(
+          [
+            '--path',
+            mixedProject.packageJsonPath,
+            '--update',
+            'minor',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(updateResult.exitCode, 0, updateResult.stderr);
+        const after = JSON.parse(
+          await readFile(mixedProject.packageJsonPath, 'utf8'),
+        ) as {
+          dependencies: Record<string, string>;
+          overrides: Record<string, string>;
+          resolutions: Record<string, string>;
+          pnpm: { overrides: Record<string, string> };
+        };
+        assert.equal(after.dependencies.express, '^4.21.0');
+        assert.deepEqual(after.overrides, before.overrides);
+        assert.deepEqual(after.resolutions, before.resolutions);
+        assert.deepEqual(after.pnpm.overrides, before.pnpm.overrides);
+      } finally {
+        await mixedProject.cleanup();
+      }
+    });
+  });
 });

@@ -151,6 +151,13 @@ describe('cli.run', () => {
     const result = await run(['--help']);
     assert.match(result.stdout, /--only <names>/);
   });
+
+  it('lists --overrides, --resolutions, and --pnpm-overrides in help text', async () => {
+    const result = await run(['--help']);
+    assert.match(result.stdout, /--overrides /);
+    assert.match(result.stdout, /--resolutions /);
+    assert.match(result.stdout, /--pnpm-overrides /);
+  });
 });
 
 describe('cli.run --cache-clear', () => {

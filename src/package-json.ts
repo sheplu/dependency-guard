@@ -15,6 +15,8 @@ export interface PackageJson {
   peerDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   overrides?: Record<string, OverrideValue>;
+  resolutions?: Record<string, string>;
+  pnpm?: { overrides?: Record<string, string> };
 }
 
 export interface DependencyEntry {
@@ -31,13 +33,37 @@ export interface DependencyFilters {
   peer: boolean;
   optional: boolean;
   overrides: boolean;
+  resolutions: boolean;
+  pnpmOverrides: boolean;
 }
+
+type OverrideSkipReason =
+  | 'override-path-specific'
+  | 'override-reference'
+  | 'override-removal'
+  | 'override-descriptor';
 
 export interface CollectedOverrides {
   entries: Array<{ name: string; version: string }>;
   skipped: Array<{
     name: string;
-    reason: 'override-path-specific' | 'override-reference';
+    reason: 'override-path-specific' | 'override-reference' | 'override-descriptor';
+  }>;
+}
+
+export interface CollectedResolutions {
+  entries: Array<{ name: string; version: string }>;
+  skipped: Array<{
+    name: string;
+    reason: 'override-path-specific' | 'override-descriptor';
+  }>;
+}
+
+export interface CollectedPnpmOverrides {
+  entries: Array<{ name: string; version: string }>;
+  skipped: Array<{
+    name: string;
+    reason: OverrideSkipReason;
   }>;
 }
 
@@ -46,8 +72,21 @@ export interface CollectedDependencies {
   skipped: Array<{
     name: string;
     type: DependencyType;
-    reason: 'override-path-specific' | 'override-reference';
+    reason: OverrideSkipReason;
   }>;
+}
+
+const DESCRIPTOR_RE = /^(npm:|file:|portal:|link:|workspace:|git\+|https?:)/;
+const KEY_RE = /^(@[^/]+\/)?[^/@>*]+$/;
+
+function isAuditableSpec(v: string): boolean {
+  if (v === '' || v === '-') return false;
+  if (v.startsWith('$')) return false;
+  return !DESCRIPTOR_RE.test(v);
+}
+
+function isAuditableKey(k: string): boolean {
+  return KEY_RE.test(k);
 }
 
 export async function readPackageJson(path: string): Promise<PackageJson> {
@@ -80,6 +119,8 @@ export function collectOverrides(
     if (typeof value === 'string') {
       if (value.startsWith('$')) {
         skipped.push({ name, reason: 'override-reference' });
+      } else if (!isAuditableSpec(value)) {
+        skipped.push({ name, reason: 'override-descriptor' });
       } else {
         entries.push({ name, version: value });
       }
@@ -89,12 +130,70 @@ export function collectOverrides(
     if (typeof dot === 'string') {
       if (dot.startsWith('$')) {
         skipped.push({ name, reason: 'override-reference' });
+      } else if (!isAuditableSpec(dot)) {
+        skipped.push({ name, reason: 'override-descriptor' });
       } else {
         entries.push({ name, version: dot });
       }
     } else {
       skipped.push({ name, reason: 'override-path-specific' });
     }
+  }
+
+  return { entries, skipped };
+}
+
+export function collectResolutions(
+  raw: PackageJson['resolutions'] | undefined,
+): CollectedResolutions {
+  const entries: CollectedResolutions['entries'] = [];
+  const skipped: CollectedResolutions['skipped'] = [];
+  if (!raw) return { entries, skipped };
+
+  for (const [name, value] of Object.entries(raw)) {
+    if (typeof value !== 'string') {
+      skipped.push({ name, reason: 'override-path-specific' });
+      continue;
+    }
+    if (!isAuditableKey(name)) {
+      skipped.push({ name, reason: 'override-path-specific' });
+      continue;
+    }
+    if (!isAuditableSpec(value)) {
+      skipped.push({ name, reason: 'override-descriptor' });
+      continue;
+    }
+    entries.push({ name, version: value });
+  }
+
+  return { entries, skipped };
+}
+
+export function collectPnpmOverrides(
+  raw: Record<string, string> | undefined,
+): CollectedPnpmOverrides {
+  const entries: CollectedPnpmOverrides['entries'] = [];
+  const skipped: CollectedPnpmOverrides['skipped'] = [];
+  if (!raw) return { entries, skipped };
+
+  for (const [name, value] of Object.entries(raw)) {
+    if (value === '-') {
+      skipped.push({ name, reason: 'override-removal' });
+      continue;
+    }
+    if (typeof value === 'string' && value.startsWith('$')) {
+      skipped.push({ name, reason: 'override-reference' });
+      continue;
+    }
+    if (!isAuditableKey(name)) {
+      skipped.push({ name, reason: 'override-path-specific' });
+      continue;
+    }
+    if (typeof value !== 'string' || !isAuditableSpec(value)) {
+      skipped.push({ name, reason: 'override-descriptor' });
+      continue;
+    }
+    entries.push({ name, version: value });
   }
 
   return { entries, skipped };
@@ -107,7 +206,10 @@ export async function collectDependencies(
   const pkg = await readPackageJson(pkgJsonPath);
   const projectDir = dirname(pkgJsonPath);
   const buckets = pickBuckets(pkg, filters);
-  const includeOverrides = !anyFilterSet(filters) || filters.overrides;
+  const allMode = !anyFilterSet(filters);
+  const includeOverrides = allMode || filters.overrides;
+  const includeResolutions = allMode || filters.resolutions;
+  const includePnpmOverrides = allMode || filters.pnpmOverrides;
 
   const entries: DependencyEntry[] = [];
   for (const [type, deps] of buckets) {
@@ -125,6 +227,7 @@ export async function collectDependencies(
   }
 
   const skipped: CollectedDependencies['skipped'] = [];
+
   if (includeOverrides) {
     const collected = collectOverrides(pkg.overrides);
     for (const entry of collected.entries) {
@@ -142,6 +245,40 @@ export async function collectDependencies(
     }
   }
 
+  if (includeResolutions) {
+    const collected = collectResolutions(pkg.resolutions);
+    for (const entry of collected.entries) {
+      const installed = await readInstalledVersion(projectDir, entry.name);
+      entries.push({
+        name: entry.name,
+        type: 'resolutions',
+        spec: entry.version,
+        installedVersion: installed ?? stripRange(entry.version),
+        transitive: false,
+      });
+    }
+    for (const s of collected.skipped) {
+      skipped.push({ name: s.name, type: 'resolutions', reason: s.reason });
+    }
+  }
+
+  if (includePnpmOverrides) {
+    const collected = collectPnpmOverrides(pkg.pnpm?.overrides);
+    for (const entry of collected.entries) {
+      const installed = await readInstalledVersion(projectDir, entry.name);
+      entries.push({
+        name: entry.name,
+        type: 'pnpm.overrides',
+        spec: entry.version,
+        installedVersion: installed ?? stripRange(entry.version),
+        transitive: false,
+      });
+    }
+    for (const s of collected.skipped) {
+      skipped.push({ name: s.name, type: 'pnpm.overrides', reason: s.reason });
+    }
+  }
+
   entries.sort((a, b) => {
     const typeDiff = TYPE_ORDER[a.type] - TYPE_ORDER[b.type];
     return typeDiff !== 0 ? typeDiff : a.name.localeCompare(b.name);
@@ -155,6 +292,8 @@ const TYPE_ORDER: Record<DependencyType, number> = {
   peerDependencies: 2,
   optionalDependencies: 3,
   overrides: 4,
+  resolutions: 5,
+  'pnpm.overrides': 6,
 };
 
 function anyFilterSet(filters: DependencyFilters): boolean {
@@ -163,7 +302,9 @@ function anyFilterSet(filters: DependencyFilters): boolean {
     filters.dev ||
     filters.peer ||
     filters.optional ||
-    filters.overrides
+    filters.overrides ||
+    filters.resolutions ||
+    filters.pnpmOverrides
   );
 }
 

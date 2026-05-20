@@ -24,7 +24,9 @@ Options:
       --dev                  Only check dev dependencies
       --peer                 Only check peer dependencies
       --optional             Only check optional dependencies
-      --overrides            Only check the overrides bucket
+      --overrides            Only check the npm overrides bucket
+      --resolutions          Only check the yarn resolutions bucket
+      --pnpm-overrides       Only check the pnpm.overrides bucket
       --ignore-scope <scope> Skip packages in this scope (repeatable, e.g. @mycompany)
       --only <names>         Analyze only these packages (comma-separated or
                              repeatable, e.g. --only express,react)
@@ -67,6 +69,8 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
         peer: { type: 'boolean', default: false },
         optional: { type: 'boolean', default: false },
         overrides: { type: 'boolean', default: false },
+        resolutions: { type: 'boolean', default: false },
+        'pnpm-overrides': { type: 'boolean', default: false },
         cache: { type: 'boolean', default: true },
         'cache-clear': { type: 'boolean', default: false },
         'cache-ttl': { type: 'string', default: '60' },
@@ -102,6 +106,8 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     peer: boolean;
     optional: boolean;
     overrides: boolean;
+    resolutions: boolean;
+    'pnpm-overrides': boolean;
     cache: boolean;
     'cache-clear': boolean;
     'cache-ttl': string;
@@ -220,6 +226,8 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     peer: values.peer,
     optional: values.optional,
     overrides: values.overrides,
+    resolutions: values.resolutions,
+    pnpmOverrides: values['pnpm-overrides'],
     cache: values.cache,
     cacheTtlMinutes,
     ignoredScopes: values['ignore-scope'],
@@ -408,6 +416,22 @@ function skippedSummary(report: AnalysisReport): string {
     const names = references.map((s) => s.name).join(', ');
     lines.push(
       `Skipped ${references.length} reference override(s) ("$name"): ${names}`,
+    );
+  }
+
+  const removals = report.skipped.filter((s) => s.reason === 'override-removal');
+  if (removals.length > 0) {
+    const names = removals.map((s) => s.name).join(', ');
+    lines.push(
+      `Skipped ${removals.length} pnpm removal pin(s) ("-"): ${names}`,
+    );
+  }
+
+  const descriptors = report.skipped.filter((s) => s.reason === 'override-descriptor');
+  if (descriptors.length > 0) {
+    const names = descriptors.map((s) => s.name).join(', ');
+    lines.push(
+      `Skipped ${descriptors.length} non-semver pin(s) (npm:/file:/portal:/git+/etc): ${names}`,
     );
   }
 

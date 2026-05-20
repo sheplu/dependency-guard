@@ -9,6 +9,8 @@ describe('typeShort', () => {
     assert.equal(typeShort('peerDependencies'), 'peer');
     assert.equal(typeShort('optionalDependencies'), 'opt');
     assert.equal(typeShort('overrides'), 'over');
+    assert.equal(typeShort('resolutions'), 'resol');
+    assert.equal(typeShort('pnpm.overrides'), 'pnpm');
   });
 });
 
