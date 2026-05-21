@@ -49,7 +49,7 @@ function pickTarget(
   latestMajor: VersionInfo | null,
   level: UpdateLevel,
 ): VersionInfo | null {
-  if (level === 'major') return latestMajor ?? latestMinor ?? latestPatch;
+  if (level === 'major' || level === 'all') return latestMajor ?? latestMinor ?? latestPatch;
   if (level === 'minor') return latestMinor ?? latestPatch;
   return latestPatch;
 }
