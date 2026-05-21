@@ -41,8 +41,12 @@ Options:
       --sort <field>         Sort by age, status, or name (default: type then name)
       --registry <url>       Registry URL (default: https://registry.npmjs.org;
                              also via DEPENDENCY_GUARD_REGISTRY_URL env var)
-      --update <level>       Rewrite package.json with the chosen upgrades
-                             (patch | minor | major); leaves up-to-date deps alone
+      --update <level>       Rewrite package.json with the chosen upgrades.
+                             Levels cascade — each level includes lower tiers:
+                               patch → patch-only deps
+                               minor → minor + patch
+                               major → major + minor + patch
+                               all   → alias for major (everything available)
       --dry-run              With --update, preview the changes without writing
   -h, --help                 Show help
   -v, --version              Show version number
@@ -212,7 +216,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
       return {
         exitCode: 1,
         stdout: '',
-        stderr: `Invalid --update: ${updateRaw} (expected one of: patch, minor, major)\n`,
+        stderr: `Invalid --update: ${updateRaw} (expected one of: patch, minor, major, all)\n`,
       };
     }
     updateLevel = updateRaw;
@@ -368,7 +372,7 @@ function isSortField(value: string): value is SortField {
 }
 
 function isUpdateLevel(value: string): value is UpdateLevel {
-  return value === 'patch' || value === 'minor' || value === 'major';
+  return value === 'patch' || value === 'minor' || value === 'major' || value === 'all';
 }
 
 function formatUpdateSummary(

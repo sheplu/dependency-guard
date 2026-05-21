@@ -122,11 +122,16 @@ describe('cli.run', () => {
     const result = await run(['--update', 'totally-bogus']);
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /Invalid --update/);
+    assert.match(result.stderr, /patch, minor, major, all/);
   });
 
-  it('lists "patch" as an accepted --update level in help text', async () => {
+  it('describes the cascading --update levels in help text', async () => {
     const result = await run(['--help']);
-    assert.match(result.stdout, /patch \| minor \| major/);
+    assert.match(result.stdout, /Levels cascade/);
+    assert.match(result.stdout, /patch → patch-only deps/);
+    assert.match(result.stdout, /minor → minor \+ patch/);
+    assert.match(result.stdout, /major → major \+ minor \+ patch/);
+    assert.match(result.stdout, /all\s+→ alias for major/);
   });
 
   it('rejects --max-age with non-integer value', async () => {

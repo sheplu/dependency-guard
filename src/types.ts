@@ -24,7 +24,7 @@ export type FailOnLevel = 'major' | 'minor' | 'patch' | 'any' | 'deprecated';
 
 export type SortField = 'age' | 'status' | 'name';
 
-export type UpdateLevel = 'patch' | 'minor' | 'major';
+export type UpdateLevel = 'patch' | 'minor' | 'major' | 'all';
 
 export interface VersionInfo {
   version: string;

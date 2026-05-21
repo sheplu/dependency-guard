@@ -271,6 +271,55 @@ describe('planUpdates', () => {
     const updates = planUpdates(report, 'minor', new Map([['noop', '^1.5.0']]));
     assert.deepEqual(updates, []);
   });
+
+  it('level "all" picks latestMajor when available (alias for major)', () => {
+    const report = makeReport([
+      dep({
+        name: 'express',
+        current: { version: '4.0.0', publishedAt: null },
+        latestPatch: { version: '4.0.5', publishedAt: null },
+        latestMinor: { version: '4.21.0', publishedAt: null },
+        latestMajor: { version: '5.0.0', publishedAt: null },
+        updateType: 'major',
+      }),
+    ]);
+    const updates = planUpdates(report, 'all', new Map([['express', '^4.0.0']]));
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].to, '5.0.0');
+    assert.equal(updates[0].newSpec, '^5.0.0');
+  });
+
+  it('level "all" falls back to latestMinor when no major exists', () => {
+    const report = makeReport([
+      dep({
+        name: 'a',
+        current: { version: '1.0.0', publishedAt: null },
+        latestPatch: { version: '1.0.5', publishedAt: null },
+        latestMinor: { version: '1.5.0', publishedAt: null },
+        latestMajor: null,
+        updateType: 'minor',
+      }),
+    ]);
+    const updates = planUpdates(report, 'all', new Map([['a', '^1.0.0']]));
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].to, '1.5.0');
+  });
+
+  it('level "all" falls back to latestPatch when only patch exists', () => {
+    const report = makeReport([
+      dep({
+        name: 'a',
+        current: { version: '1.0.0', publishedAt: null },
+        latestPatch: { version: '1.0.5', publishedAt: null },
+        latestMinor: null,
+        latestMajor: null,
+        updateType: 'patch',
+      }),
+    ]);
+    const updates = planUpdates(report, 'all', new Map([['a', '^1.0.0']]));
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].to, '1.0.5');
+  });
 });
 
 describe('applyRange', () => {

@@ -1836,6 +1836,26 @@ packages:
       assert.equal(deps.express, '^5.0.1');
     });
 
+    it('--update all behaves like --update major (alias)', async () => {
+      const result = await runCli(
+        [
+          '--path',
+          updateProject.packageJsonPath,
+          '--format',
+          'json',
+          '--update',
+          'all',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /Updated \d+ dep\(s\) in package\.json at level "all"/);
+      const pkg = await readPkg();
+      const deps = pkg.dependencies as Record<string, string>;
+      assert.equal(deps.express, '^5.0.1');
+    });
+
     it('--update minor --prod only writes prod deps', async () => {
       const before = JSON.parse(
         await readFile(updateProject.packageJsonPath, 'utf8'),
