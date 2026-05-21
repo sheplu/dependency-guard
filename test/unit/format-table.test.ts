@@ -45,8 +45,13 @@ describe('formatTable', () => {
     assert.match(out, /│ Latest Age │/);
     assert.match(out, /express/);
     assert.match(out, /lodash/);
+    // Patch column is hidden (no dep has a patch update); Minor and Major remain
+    // because express populates them.
+    assert.doesNotMatch(out, /│ Patch /);
+    assert.match(out, /│ Minor /);
+    assert.match(out, /│ Major /);
     // Up-to-date row: Age and Latest Age are equal (signals an unmaintained but current dep)
-    assert.match(out, /4\.17\.21\s+│\s+-\s+│\s+-\s+│\s+-\s+│\s+2y\s+│\s+2y\s+│/);
+    assert.match(out, /4\.17\.21\s+│\s+-\s+│\s+-\s+│\s+2y\s+│\s+2y\s+│/);
     // eslint-disable-next-line no-control-regex
     assert.doesNotMatch(out, /\x1b\[/);
   });
@@ -257,10 +262,12 @@ describe('formatTable', () => {
     assert.match(out, /Patch updates: 1/);
     // Status column still tags patch-only rows
     assert.match(out, /△ Patch\s+│/);
-    // Header now includes a Patch column between Current and Minor
-    assert.match(out, /│ Package\s+│ Type\s+│ Current\s+│ Patch\s+│ Minor\s+│ Major\s+│/);
+    // Header includes Patch (used) but auto-hides empty Minor and Major
+    assert.match(out, /│ Package\s+│ Type\s+│ Current\s+│ Patch\s+│ Age /);
+    assert.doesNotMatch(out, /│ Minor /);
+    assert.doesNotMatch(out, /│ Major /);
     // Patch version is surfaced in the row body
-    assert.match(out, /4\.18\.2\s+│\s+4\.18\.9\s+│\s+-\s+│\s+-\s+│/);
+    assert.match(out, /4\.18\.2\s+│\s+4\.18\.9\s+│/);
   });
 
   it('defaults color to TTY detection when option is omitted', () => {
@@ -271,5 +278,112 @@ describe('formatTable', () => {
     };
     const out = formatTable(report);
     assert.match(out, /Summary:/);
+  });
+
+  it('hides Minor and Major when no dep has a value in either', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 0, patchUpdates: 1, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'patch-only',
+          type: 'dependencies',
+          current: { version: '1.0.0', publishedAt: null },
+          latestPatch: { version: '1.0.5', publishedAt: null },
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 30,
+          latestAgeInDays: 5,
+          updateType: 'patch',
+          deprecated: null,
+          transitive: false,
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatTable(report, { color: false });
+    assert.match(out, /│ Patch /);
+    assert.doesNotMatch(out, /│ Minor /);
+    assert.doesNotMatch(out, /│ Major /);
+  });
+
+  it('hides Patch when no dep has a patch update', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 0, patchUpdates: 0, minorUpdates: 1, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'minor-only',
+          type: 'dependencies',
+          current: { version: '1.0.0', publishedAt: null },
+          latestPatch: null,
+          latestMinor: { version: '1.5.0', publishedAt: null },
+          latestMajor: null,
+          ageInDays: 60,
+          latestAgeInDays: 10,
+          updateType: 'minor',
+          deprecated: null,
+          transitive: false,
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatTable(report, { color: false });
+    assert.doesNotMatch(out, /│ Patch /);
+    assert.match(out, /│ Minor /);
+    assert.doesNotMatch(out, /│ Major /);
+  });
+
+  it('hides all three optional columns when every dep is up-to-date', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 1, patchUpdates: 0, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'lodash',
+          type: 'dependencies',
+          current: { version: '4.17.21', publishedAt: null },
+          latestPatch: null,
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 730,
+          latestAgeInDays: 730,
+          updateType: 'up-to-date',
+          deprecated: null,
+          transitive: false,
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatTable(report, { color: false });
+    assert.doesNotMatch(out, /│ Patch /);
+    assert.doesNotMatch(out, /│ Minor /);
+    assert.doesNotMatch(out, /│ Major /);
+    // The remaining six columns are still present in the header row
+    assert.match(out, /│ Package\s+│ Type\s+│ Current\s+│ Age\s+│ Latest Age\s+│ Status\s+│/);
+  });
+
+  it('keeps Patch/Minor/Major when allColumns: true even if every cell is "-"', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 1, patchUpdates: 0, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'lodash',
+          type: 'dependencies',
+          current: { version: '4.17.21', publishedAt: null },
+          latestPatch: null,
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 730,
+          latestAgeInDays: 730,
+          updateType: 'up-to-date',
+          deprecated: null,
+          transitive: false,
+        },
+      ],
+      skipped: [],
+    };
+    const out = formatTable(report, { color: false, allColumns: true });
+    assert.match(out, /│ Patch /);
+    assert.match(out, /│ Minor /);
+    assert.match(out, /│ Major /);
+    assert.match(out, /4\.17\.21\s+│\s+-\s+│\s+-\s+│\s+-\s+│/);
   });
 });

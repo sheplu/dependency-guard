@@ -232,6 +232,63 @@ describe('CLI integration', () => {
     assert.match(result.stdout, /express/);
   });
 
+  it('hides Patch/Minor/Major columns when no dep has an upgrade in those tiers', async () => {
+    const cleanProject = await createTmpProject({
+      packageJson: {
+        name: 'fixture-clean-columns',
+        version: '1.0.0',
+        dependencies: { lodash: '4.17.21' },
+      },
+      installed: { lodash: '4.17.21' },
+    });
+    try {
+      const result = await runCli(
+        ['--path', cleanProject.packageJsonPath, '--format', 'table', '--no-cache'],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.doesNotMatch(result.stdout, /│ Patch /);
+      assert.doesNotMatch(result.stdout, /│ Minor /);
+      assert.doesNotMatch(result.stdout, /│ Major /);
+      // Other columns are still present
+      assert.match(result.stdout, /│ Package /);
+      assert.match(result.stdout, /│ Current /);
+      assert.match(result.stdout, /│ Status /);
+    } finally {
+      await cleanProject.cleanup();
+    }
+  });
+
+  it('--all-columns forces Patch/Minor/Major to render even when empty', async () => {
+    const cleanProject = await createTmpProject({
+      packageJson: {
+        name: 'fixture-clean-allcols',
+        version: '1.0.0',
+        dependencies: { lodash: '4.17.21' },
+      },
+      installed: { lodash: '4.17.21' },
+    });
+    try {
+      const result = await runCli(
+        [
+          '--path',
+          cleanProject.packageJsonPath,
+          '--format',
+          'table',
+          '--all-columns',
+          '--no-cache',
+        ],
+        { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /│ Patch /);
+      assert.match(result.stdout, /│ Minor /);
+      assert.match(result.stdout, /│ Major /);
+    } finally {
+      await cleanProject.cleanup();
+    }
+  });
+
   it('--cache-clear exits 0 against an isolated cache dir', async () => {
     const result = await runCli(['--cache-clear'], {
       DEPENDENCY_GUARD_CACHE_DIR: cacheDir,

@@ -89,6 +89,7 @@ export interface CliOptions {
   includeTransitive: boolean;
   updateLevel: UpdateLevel | null;
   dryRun: boolean;
+  allColumns: boolean;
 }
 
 export interface RegistryPackageMetadata {

@@ -2,18 +2,53 @@ import { formatAge } from '../age.ts';
 import type { AnalysisReport, DependencyAnalysis, UpdateType } from '../types.ts';
 import { ANSI, type AnsiColor, colorize, statusLabel, typeShort } from './shared.ts';
 
-const HEADERS = ['Package', 'Type', 'Current', 'Patch', 'Minor', 'Major', 'Age', 'Latest Age', 'Status'] as const;
+interface Column {
+  header: string;
+  optional: boolean;
+  hasValue?: (dep: DependencyAnalysis) => boolean;
+  cell: (dep: DependencyAnalysis, useColor: boolean) => string;
+}
+
+const ALL_COLUMNS: Column[] = [
+  { header: 'Package',    optional: false, cell: packageCell },
+  { header: 'Type',       optional: false, cell: (d) => typeShort(d.type) },
+  { header: 'Current',    optional: false, cell: (d) => d.current.version },
+  {
+    header: 'Patch',
+    optional: true,
+    hasValue: (d) => d.latestPatch !== null,
+    cell: (d) => d.latestPatch?.version ?? '-',
+  },
+  {
+    header: 'Minor',
+    optional: true,
+    hasValue: (d) => d.latestMinor !== null,
+    cell: (d) => d.latestMinor?.version ?? '-',
+  },
+  {
+    header: 'Major',
+    optional: true,
+    hasValue: (d) => d.latestMajor !== null,
+    cell: (d) => d.latestMajor?.version ?? '-',
+  },
+  { header: 'Age',        optional: false, cell: (d) => formatAge(d.ageInDays) },
+  { header: 'Latest Age', optional: false, cell: (d) => formatAge(d.latestAgeInDays) },
+  { header: 'Status',     optional: false, cell: (d) => statusLabel(d.updateType) },
+];
 
 export interface FormatTableOptions {
   color?: boolean;
   quiet?: boolean;
+  allColumns?: boolean;
 }
 
 export function formatTable(report: AnalysisReport, opts: FormatTableOptions = {}): string {
   const useColor = opts.color ?? Boolean(process.stdout.isTTY);
+  const columns = selectColumns(report, opts.allColumns ?? false);
 
-  const rows = report.dependencies.map((d) => buildRow(d, useColor));
-  const widths = HEADERS.map((h, i) =>
+  const headers = columns.map((c) => c.header);
+  const rows = report.dependencies.map((d) => columns.map((c) => c.cell(d, useColor)));
+  const widths = headers.map((h, i) =>
     Math.max(h.length, ...rows.map((r) => visualLength(r[i]))),
   );
 
@@ -29,7 +64,7 @@ export function formatTable(report: AnalysisReport, opts: FormatTableOptions = {
   }
 
   lines.push(border(widths, '┌', '┬', '┐'));
-  lines.push(rowLine(HEADERS as unknown as string[], widths));
+  lines.push(rowLine(headers, widths));
   lines.push(border(widths, '├', '┼', '┤'));
   for (let i = 0; i < rows.length; i++) {
     const updateType = report.dependencies[i].updateType;
@@ -40,22 +75,19 @@ export function formatTable(report: AnalysisReport, opts: FormatTableOptions = {
   return lines.join('\n');
 }
 
-function buildRow(dep: DependencyAnalysis, useColor: boolean): string[] {
+function selectColumns(report: AnalysisReport, allColumns: boolean): Column[] {
+  if (allColumns) return ALL_COLUMNS;
+  return ALL_COLUMNS.filter(
+    (c) => !c.optional || report.dependencies.some((d) => c.hasValue!(d)),
+  );
+}
+
+function packageCell(dep: DependencyAnalysis, useColor: boolean): string {
   let name = dep.transitive ? `↳ ${dep.name}` : dep.name;
   if (dep.deprecated !== null) {
     name = `${name} ${colorize('⚠', 'yellow', useColor)}`;
   }
-  return [
-    name,
-    typeShort(dep.type),
-    dep.current.version,
-    dep.latestPatch?.version ?? '-',
-    dep.latestMinor?.version ?? '-',
-    dep.latestMajor?.version ?? '-',
-    formatAge(dep.ageInDays),
-    formatAge(dep.latestAgeInDays),
-    statusLabel(dep.updateType),
-  ];
+  return name;
 }
 
 function statusColor(updateType: UpdateType): AnsiColor {

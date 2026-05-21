@@ -41,6 +41,8 @@ Options:
       --sort <field>         Sort by age, status, or name (default: type then name)
       --registry <url>       Registry URL (default: https://registry.npmjs.org;
                              also via DEPENDENCY_GUARD_REGISTRY_URL env var)
+      --all-columns          Force-show Patch/Minor/Major columns even when empty
+                             (table format only)
       --update <level>       Rewrite package.json with the chosen upgrades.
                              Levels cascade — each level includes lower tiers:
                                patch → patch-only deps
@@ -87,6 +89,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
         'include-transitive': { type: 'boolean', default: false },
         update: { type: 'string' },
         'dry-run': { type: 'boolean', default: false },
+        'all-columns': { type: 'boolean', default: false },
         quiet: { type: 'boolean', short: 'q', default: false },
         help: { type: 'boolean', short: 'h', default: false },
         version: { type: 'boolean', short: 'v', default: false },
@@ -124,6 +127,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     'include-transitive': boolean;
     update?: string;
     'dry-run': boolean;
+    'all-columns': boolean;
     quiet: boolean;
     help: boolean;
     version: boolean;
@@ -244,6 +248,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     includeTransitive: values['include-transitive'],
     updateLevel,
     dryRun: values['dry-run'],
+    allColumns: values['all-columns'],
   };
 
   let extraStderr = '';
@@ -277,7 +282,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
 
   try {
     const report = await runAnalysis(options);
-    let out = render(report, options.format, { quiet: options.quiet });
+    let out = render(report, options.format, { quiet: options.quiet, allColumns: options.allColumns });
     if (options.format !== 'json' && report.skipped.length > 0) {
       out += '\n\n' + skippedSummary(report);
     }
@@ -466,12 +471,13 @@ function skippedSummary(report: AnalysisReport): string {
 
 interface RenderOptions {
   quiet: boolean;
+  allColumns: boolean;
 }
 
 function render(report: AnalysisReport, format: OutputFormat, opts: RenderOptions): string {
   if (format === 'json') return formatJson(report);
   if (format === 'markdown') return formatMarkdown(report, { quiet: opts.quiet });
-  return formatTable(report, { quiet: opts.quiet });
+  return formatTable(report, { quiet: opts.quiet, allColumns: opts.allColumns });
 }
 
 function isOutputFormat(value: string): value is OutputFormat {
