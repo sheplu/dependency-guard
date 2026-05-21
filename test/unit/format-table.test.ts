@@ -46,7 +46,7 @@ describe('formatTable', () => {
     assert.match(out, /express/);
     assert.match(out, /lodash/);
     // Up-to-date row: Age and Latest Age are equal (signals an unmaintained but current dep)
-    assert.match(out, /4\.17\.21\s+│\s+-\s+│\s+-\s+│\s+2y\s+│\s+2y\s+│/);
+    assert.match(out, /4\.17\.21\s+│\s+-\s+│\s+-\s+│\s+-\s+│\s+2y\s+│\s+2y\s+│/);
     // eslint-disable-next-line no-control-regex
     assert.doesNotMatch(out, /\x1b\[/);
   });
@@ -232,7 +232,7 @@ describe('formatTable', () => {
     assert.match(out, /pnpm-pin\s+│\s+pnpm\s+│/);
   });
 
-  it('omits the Patch column from the table but keeps the Patch updates summary line', () => {
+  it('renders the Patch column with the latest patch version for patch-only rows', () => {
     const report: AnalysisReport = {
       summary: { total: 1, upToDate: 0, patchUpdates: 1, minorUpdates: 0, majorUpdates: 0 },
       dependencies: [
@@ -257,11 +257,10 @@ describe('formatTable', () => {
     assert.match(out, /Patch updates: 1/);
     // Status column still tags patch-only rows
     assert.match(out, /△ Patch\s+│/);
-    // But the per-row "Patch" column is gone — header skips straight from Current to Minor,
-    // and the patch version (4.18.9) does not appear anywhere in the table body.
-    assert.match(out, /│ Package\s+│ Type\s+│ Current\s+│ Minor\s+│ Major\s+│/);
-    assert.doesNotMatch(out, /│ Patch\s+│/);
-    assert.doesNotMatch(out, /4\.18\.9/);
+    // Header now includes a Patch column between Current and Minor
+    assert.match(out, /│ Package\s+│ Type\s+│ Current\s+│ Patch\s+│ Minor\s+│ Major\s+│/);
+    // Patch version is surfaced in the row body
+    assert.match(out, /4\.18\.2\s+│\s+4\.18\.9\s+│\s+-\s+│\s+-\s+│/);
   });
 
   it('defaults color to TTY detection when option is omitted', () => {
