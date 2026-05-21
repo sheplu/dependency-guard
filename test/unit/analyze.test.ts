@@ -30,6 +30,7 @@ function baseAnalyzeOptions(path: string): CliOptions {
     includeTransitive: false,
     updateLevel: null,
     dryRun: false,
+    allColumns: false,
     onlyNames: [],
   };
 }
@@ -99,6 +100,7 @@ describe('runAnalysis', () => {
             includeTransitive: false,
             updateLevel: null,
             dryRun: false,
+            allColumns: false,
             onlyNames: [],
           },
           { registry, cache },
@@ -145,6 +147,7 @@ describe('runAnalysis', () => {
             includeTransitive: false,
             updateLevel: null,
             dryRun: false,
+            allColumns: false,
             onlyNames: [],
           },
           { registry, cache },
@@ -198,6 +201,7 @@ describe('runAnalysis', () => {
             includeTransitive: false,
             updateLevel: null,
             dryRun: false,
+            allColumns: false,
         onlyNames: [],
       },
       { registry, cache },
@@ -259,6 +263,7 @@ describe('runAnalysis', () => {
             includeTransitive: false,
             updateLevel: null,
             dryRun: false,
+            allColumns: false,
         onlyNames: [],
       },
       { registry, cache },
@@ -311,6 +316,7 @@ describe('runAnalysis', () => {
             includeTransitive: false,
             updateLevel: null,
             dryRun: false,
+            allColumns: false,
         onlyNames: [],
       },
       { registry, cache },
@@ -362,6 +368,7 @@ describe('runAnalysis', () => {
             includeTransitive: false,
             updateLevel: null,
             dryRun: false,
+            allColumns: false,
         onlyNames: [],
       },
       { registry, cache },
@@ -455,6 +462,7 @@ describe('runAnalysis sorting', () => {
             includeTransitive: false,
             updateLevel: null,
             dryRun: false,
+            allColumns: false,
     };
   }
 
@@ -694,6 +702,7 @@ describe('runAnalysis --only filter', () => {
             includeTransitive: false,
             updateLevel: null,
             dryRun: false,
+            allColumns: false,
       ...overrides,
     };
   }
@@ -961,6 +970,7 @@ describe('runAnalysis overrides composition', () => {
       includeTransitive: false,
       updateLevel: null,
       dryRun: false,
+      allColumns: false,
       ...over,
     };
   }
@@ -1133,6 +1143,7 @@ describe('runAnalysis resolutions composition', () => {
       includeTransitive: false,
       updateLevel: null,
       dryRun: false,
+      allColumns: false,
       ...over,
     };
   }
@@ -1277,6 +1288,7 @@ describe('runAnalysis pnpm.overrides composition', () => {
       includeTransitive: false,
       updateLevel: null,
       dryRun: false,
+      allColumns: false,
       ...over,
     };
   }

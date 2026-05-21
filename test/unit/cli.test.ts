@@ -134,6 +134,21 @@ describe('cli.run', () => {
     assert.match(result.stdout, /all\s+→ alias for major/);
   });
 
+  it('lists --all-columns in help text', async () => {
+    const result = await run(['--help']);
+    assert.match(result.stdout, /--all-columns/);
+    assert.match(result.stdout, /Force-show Patch\/Minor\/Major columns/);
+  });
+
+  it('accepts --all-columns without rejecting it as an unknown option', async () => {
+    // parseArgs would emit "Unknown option --all-columns" if we hadn't
+    // registered it. Use an invalid path to short-circuit the registry call.
+    const result = await run(['--all-columns', '--path', '/nonexistent-path/package.json']);
+    assert.notEqual(result.stderr, '');
+    assert.doesNotMatch(result.stderr, /Unknown option/);
+    assert.doesNotMatch(result.stderr, /--all-columns/);
+  });
+
   it('rejects --max-age with non-integer value', async () => {
     const result = await run(['--max-age', 'abc']);
     assert.equal(result.exitCode, 1);
