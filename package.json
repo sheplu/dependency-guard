@@ -23,7 +23,8 @@
     "test:integration": "node --test 'test/integration/**/*.test.ts'",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 'test/**/*.test.ts'",
     "lint": "oxlint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "echo 'No build step: TypeScript is consumed directly via Node 24+ type stripping.'"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
