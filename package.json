@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "Review and analyze your project's dependencies",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sheplu/dependency-guard.git"
+  },
+  "homepage": "https://github.com/sheplu/dependency-guard#readme",
+  "bugs": {
+    "url": "https://github.com/sheplu/dependency-guard/issues"
+  },
   "type": "module",
   "bin": {
     "dependency-guard": "index.ts"
