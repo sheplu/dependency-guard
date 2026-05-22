@@ -4,7 +4,7 @@
   "description": "Review and analyze your project's dependencies",
   "type": "module",
   "bin": {
-    "dependency-guard": "./index.ts"
+    "dependency-guard": "index.ts"
   },
   "main": "./index.ts",
   "engines": {
