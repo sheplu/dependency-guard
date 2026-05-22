@@ -2,6 +2,7 @@
   "name": "@sheplu/dependency-guard",
   "version": "0.1.0",
   "description": "Review and analyze your project's dependencies",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "dependency-guard": "index.ts"
