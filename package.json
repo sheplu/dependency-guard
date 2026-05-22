@@ -13,15 +13,15 @@
   },
   "type": "module",
   "bin": {
-    "dependency-guard": "index.ts"
+    "dependency-guard": "./dist/index.js"
   },
-  "main": "./index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "engines": {
     "node": ">=24.0.0"
   },
   "files": [
-    "index.ts",
-    "src",
+    "dist",
     "README.md",
     "LICENSE"
   ],
@@ -33,7 +33,8 @@
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 'test/**/*.test.ts'",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit",
-    "build": "echo 'No build step: TypeScript is consumed directly via Node 24+ type stripping.'"
+    "build": "tsc --project tsconfig.build.json",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
