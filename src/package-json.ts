@@ -25,6 +25,7 @@ export interface DependencyEntry {
   spec: string;
   installedVersion: string | null;
   transitive: boolean;
+  catalogName?: string | null;
 }
 
 export interface DependencyFilters {
@@ -90,7 +91,7 @@ function isAuditableKey(k: string): boolean {
   return KEY_RE.test(k);
 }
 
-function isCatalogSpec(v: string): boolean {
+export function isCatalogSpec(v: string): boolean {
   return v.startsWith('catalog:');
 }
 
@@ -307,7 +308,7 @@ export async function collectDependencies(
   return { entries, skipped };
 }
 
-const TYPE_ORDER: Record<DependencyType, number> = {
+export const TYPE_ORDER: Record<DependencyType, number> = {
   dependencies: 0,
   devDependencies: 1,
   peerDependencies: 2,
@@ -315,6 +316,7 @@ const TYPE_ORDER: Record<DependencyType, number> = {
   overrides: 4,
   resolutions: 5,
   'pnpm.overrides': 6,
+  catalog: 7,
 };
 
 function anyFilterSet(filters: DependencyFilters): boolean {

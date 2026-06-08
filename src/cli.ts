@@ -1,6 +1,7 @@
 import { dirname } from 'node:path';
 import { parseArgs } from 'node:util';
 import { runAnalysis } from './analyze.ts';
+import { applyCatalogUpdates, collectCatalogEntries, findWorkspaceFile } from './catalog.ts';
 import { Cache } from './cache.ts';
 import { detectLockfiles } from './lockfile.ts';
 import { formatJson } from './format/json.ts';
@@ -27,6 +28,9 @@ Options:
       --overrides            Only check the npm overrides bucket
       --resolutions          Only check the yarn resolutions bucket
       --pnpm-overrides       Only check the pnpm.overrides bucket
+      --catalog              Audit and update pnpm catalog entries from
+                             pnpm-workspace.yaml (auto-discovered upward from
+                             the package.json location)
       --ignore-scope <scope> Skip packages in this scope (repeatable, e.g. @mycompany)
       --only <names>         Analyze only these packages (comma-separated or
                              repeatable, e.g. --only express,react)
@@ -77,6 +81,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
         overrides: { type: 'boolean', default: false },
         resolutions: { type: 'boolean', default: false },
         'pnpm-overrides': { type: 'boolean', default: false },
+        catalog: { type: 'boolean', default: false },
         cache: { type: 'boolean', default: true },
         'cache-clear': { type: 'boolean', default: false },
         'cache-ttl': { type: 'string', default: '60' },
@@ -115,6 +120,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     overrides: boolean;
     resolutions: boolean;
     'pnpm-overrides': boolean;
+    catalog: boolean;
     cache: boolean;
     'cache-clear': boolean;
     'cache-ttl': string;
@@ -236,6 +242,7 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     overrides: values.overrides,
     resolutions: values.resolutions,
     pnpmOverrides: values['pnpm-overrides'],
+    catalog: values.catalog,
     cache: values.cache,
     cacheTtlMinutes,
     ignoredScopes: values['ignore-scope'],
@@ -329,14 +336,33 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     if (options.updateLevel !== null) {
       const pkg = await readPackageJson(options.path);
       const originalSpecs = collectAllSpecs(pkg);
-      const updates = planUpdates(report, options.updateLevel, originalSpecs);
+
+      // Catalog entries live in pnpm-workspace.yaml, not package.json.
+      let workspaceFilePath: string | null = null;
+      const catalogOriginalSpecs = new Map<string, string>();
+      if (options.catalog) {
+        workspaceFilePath = await findWorkspaceFile(dirname(options.path));
+        if (workspaceFilePath) {
+          const catalogEntries = await collectCatalogEntries(workspaceFilePath, dirname(options.path));
+          for (const e of catalogEntries) catalogOriginalSpecs.set(e.name, e.spec);
+        }
+      }
+
+      const allSpecs = new Map([...originalSpecs, ...catalogOriginalSpecs]);
+      const updates = planUpdates(report, options.updateLevel, allSpecs);
+      const catalogUpdates = updates.filter((u) => u.type === 'catalog');
+      const pkgJsonUpdates = updates.filter((u) => u.type !== 'catalog');
+
       const useColor = Boolean(process.stdout.isTTY);
       if (updates.length === 0) {
         out += `\n\nNo updates to apply at level "${options.updateLevel}".`;
       } else if (options.dryRun) {
         out += '\n\n' + formatUpdateSummary(updates, options.updateLevel, true, useColor);
       } else {
-        await applyUpdates(options.path, updates);
+        if (pkgJsonUpdates.length > 0) await applyUpdates(options.path, pkgJsonUpdates);
+        if (catalogUpdates.length > 0 && workspaceFilePath !== null) {
+          await applyCatalogUpdates(workspaceFilePath, catalogUpdates);
+        }
         out += '\n\n' + formatUpdateSummary(updates, options.updateLevel, false, useColor);
       }
     } else if (options.dryRun) {

@@ -8,6 +8,7 @@ export interface TmpProjectOptions {
   packageLock?: Record<string, unknown>;
   yarnLock?: string;
   pnpmLock?: string;
+  pnpmWorkspace?: string;
 }
 
 export interface TmpProject {
@@ -43,6 +44,10 @@ export async function createTmpProject(options: TmpProjectOptions): Promise<TmpP
 
   if (options.pnpmLock !== undefined) {
     await writeFile(join(dir, 'pnpm-lock.yaml'), options.pnpmLock);
+  }
+
+  if (options.pnpmWorkspace !== undefined) {
+    await writeFile(join(dir, 'pnpm-workspace.yaml'), options.pnpmWorkspace);
   }
 
   return {
