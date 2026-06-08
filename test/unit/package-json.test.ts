@@ -187,6 +187,34 @@ describe('collectDependencies', () => {
     const lodash = entries.find((e) => e.name === 'lodash');
     assert.equal(lodash?.installedVersion, '4.17.21');
   });
+
+  it('skips catalog: deps and surfaces them in skipped', async () => {
+    const catalogDir = await mkdtemp(join(tmpdir(), 'dep-guard-catalog-'));
+    try {
+      await writeFile(
+        join(catalogDir, 'package.json'),
+        JSON.stringify({
+          name: 'fixture-catalog',
+          dependencies: { react: '^18.0.0' },
+          devDependencies: { typescript: 'catalog:', '@types/node': 'catalog:tooling' },
+        }),
+      );
+      const { entries, skipped } = await collectDependencies(
+        join(catalogDir, 'package.json'),
+        { prod: false, dev: false, peer: false, optional: false, overrides: false, resolutions: false, pnpmOverrides: false },
+      );
+      assert.deepEqual(entries.map((e) => e.name), ['react']);
+      assert.deepEqual(
+        skipped.toSorted((a, b) => a.name.localeCompare(b.name)),
+        [
+          { name: '@types/node', type: 'devDependencies', reason: 'catalog' },
+          { name: 'typescript', type: 'devDependencies', reason: 'catalog' },
+        ],
+      );
+    } finally {
+      await rm(catalogDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('collectOverrides', () => {
@@ -260,6 +288,24 @@ describe('collectOverrides', () => {
     });
     assert.deepEqual(entries, []);
     assert.deepEqual(skipped, [{ name: 'foo', reason: 'override-descriptor' }]);
+  });
+
+  it('skips catalog: default reference', () => {
+    const { entries, skipped } = collectOverrides({ typescript: 'catalog:' });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'typescript', reason: 'catalog' }]);
+  });
+
+  it('skips catalog:name named reference', () => {
+    const { entries, skipped } = collectOverrides({ zod: 'catalog:react18' });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'zod', reason: 'catalog' }]);
+  });
+
+  it('skips catalog: inside the "." key', () => {
+    const { entries, skipped } = collectOverrides({ foo: { '.': 'catalog:' } });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'foo', reason: 'catalog' }]);
   });
 });
 
@@ -363,6 +409,18 @@ describe('collectResolutions', () => {
     assert.deepEqual(entries, []);
     assert.deepEqual(skipped, [{ name: 'ref', reason: 'override-descriptor' }]);
   });
+
+  it('skips catalog: default reference', () => {
+    const { entries, skipped } = collectResolutions({ typescript: 'catalog:' });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'typescript', reason: 'catalog' }]);
+  });
+
+  it('skips catalog:name named reference', () => {
+    const { entries, skipped } = collectResolutions({ zod: 'catalog:react18' });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'zod', reason: 'catalog' }]);
+  });
 });
 
 describe('collectPnpmOverrides', () => {
@@ -441,5 +499,17 @@ describe('collectPnpmOverrides', () => {
     });
     assert.deepEqual(entries, []);
     assert.deepEqual(skipped, [{ name: 'bad', reason: 'override-descriptor' }]);
+  });
+
+  it('skips catalog: default reference', () => {
+    const { entries, skipped } = collectPnpmOverrides({ typescript: 'catalog:' });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'typescript', reason: 'catalog' }]);
+  });
+
+  it('skips catalog:name named reference', () => {
+    const { entries, skipped } = collectPnpmOverrides({ zod: 'catalog:react18' });
+    assert.deepEqual(entries, []);
+    assert.deepEqual(skipped, [{ name: 'zod', reason: 'catalog' }]);
   });
 });

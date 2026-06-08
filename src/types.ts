@@ -9,6 +9,7 @@ export type DependencyType =
 
 export type SkippedReason =
   | 'ignored-scope'
+  | 'catalog'
   | 'override-path-specific'
   | 'override-reference'
   | 'override-removal'

@@ -418,6 +418,14 @@ function skippedSummary(report: AnalysisReport): string {
     );
   }
 
+  const catalogs = report.skipped.filter((s) => s.reason === 'catalog');
+  if (catalogs.length > 0) {
+    const names = catalogs.map((s) => s.name).join(', ');
+    lines.push(
+      `Skipped ${catalogs.length} pnpm catalog reference(s) (managed in pnpm-workspace.yaml): ${names}`,
+    );
+  }
+
   const pathSpecific = report.skipped.filter((s) => s.reason === 'override-path-specific');
   if (pathSpecific.length > 0) {
     const names = pathSpecific.map((s) => s.name).join(', ');
