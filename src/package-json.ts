@@ -38,6 +38,7 @@ export interface DependencyFilters {
 }
 
 type OverrideSkipReason =
+  | 'catalog'
   | 'override-path-specific'
   | 'override-reference'
   | 'override-removal'
@@ -47,7 +48,7 @@ export interface CollectedOverrides {
   entries: Array<{ name: string; version: string }>;
   skipped: Array<{
     name: string;
-    reason: 'override-path-specific' | 'override-reference' | 'override-descriptor';
+    reason: 'catalog' | 'override-path-specific' | 'override-reference' | 'override-descriptor';
   }>;
 }
 
@@ -55,7 +56,7 @@ export interface CollectedResolutions {
   entries: Array<{ name: string; version: string }>;
   skipped: Array<{
     name: string;
-    reason: 'override-path-specific' | 'override-descriptor';
+    reason: 'catalog' | 'override-path-specific' | 'override-descriptor';
   }>;
 }
 
@@ -89,6 +90,10 @@ function isAuditableKey(k: string): boolean {
   return KEY_RE.test(k);
 }
 
+function isCatalogSpec(v: string): boolean {
+  return v.startsWith('catalog:');
+}
+
 export async function readPackageJson(path: string): Promise<PackageJson> {
   const raw = await readFile(path, 'utf8');
   return JSON.parse(raw) as PackageJson;
@@ -117,7 +122,9 @@ export function collectOverrides(
 
   for (const [name, value] of Object.entries(raw)) {
     if (typeof value === 'string') {
-      if (value.startsWith('$')) {
+      if (isCatalogSpec(value)) {
+        skipped.push({ name, reason: 'catalog' });
+      } else if (value.startsWith('$')) {
         skipped.push({ name, reason: 'override-reference' });
       } else if (!isAuditableSpec(value)) {
         skipped.push({ name, reason: 'override-descriptor' });
@@ -128,7 +135,9 @@ export function collectOverrides(
     }
     const dot = value['.'];
     if (typeof dot === 'string') {
-      if (dot.startsWith('$')) {
+      if (isCatalogSpec(dot)) {
+        skipped.push({ name, reason: 'catalog' });
+      } else if (dot.startsWith('$')) {
         skipped.push({ name, reason: 'override-reference' });
       } else if (!isAuditableSpec(dot)) {
         skipped.push({ name, reason: 'override-descriptor' });
@@ -157,6 +166,10 @@ export function collectResolutions(
     }
     if (!isAuditableKey(name)) {
       skipped.push({ name, reason: 'override-path-specific' });
+      continue;
+    }
+    if (isCatalogSpec(value)) {
+      skipped.push({ name, reason: 'catalog' });
       continue;
     }
     if (!isAuditableSpec(value)) {
@@ -189,6 +202,10 @@ export function collectPnpmOverrides(
       skipped.push({ name, reason: 'override-path-specific' });
       continue;
     }
+    if (typeof value === 'string' && isCatalogSpec(value)) {
+      skipped.push({ name, reason: 'catalog' });
+      continue;
+    }
     if (typeof value !== 'string' || !isAuditableSpec(value)) {
       skipped.push({ name, reason: 'override-descriptor' });
       continue;
@@ -212,9 +229,15 @@ export async function collectDependencies(
   const includePnpmOverrides = allMode || filters.pnpmOverrides;
 
   const entries: DependencyEntry[] = [];
+  const skipped: CollectedDependencies['skipped'] = [];
+
   for (const [type, deps] of buckets) {
     if (!deps) continue;
     for (const [name, spec] of Object.entries(deps)) {
+      if (isCatalogSpec(spec)) {
+        skipped.push({ name, type, reason: 'catalog' });
+        continue;
+      }
       const installed = await readInstalledVersion(projectDir, name);
       entries.push({
         name,
@@ -225,8 +248,6 @@ export async function collectDependencies(
       });
     }
   }
-
-  const skipped: CollectedDependencies['skipped'] = [];
 
   if (includeOverrides) {
     const collected = collectOverrides(pkg.overrides);

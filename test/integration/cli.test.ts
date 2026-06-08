@@ -3363,6 +3363,54 @@ packages:
       }
     });
 
+    it('surfaces catalog: references as catalog in skipped list and CLI message', async () => {
+      const catalogProject = await createTmpProject({
+        packageJson: {
+          name: 'fixture-catalog-ref',
+          version: '1.0.0',
+          dependencies: { lodash: '4.17.21' },
+          devDependencies: { typescript: 'catalog:', '@types/node': 'catalog:tooling' },
+        },
+        installed: { lodash: '4.17.21' },
+      });
+      try {
+        const jsonResult = await runCli(
+          [
+            '--path',
+            catalogProject.packageJsonPath,
+            '--format',
+            'json',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(jsonResult.exitCode, 0, jsonResult.stderr);
+        const report = JSON.parse(jsonResult.stdout);
+        const catalogSkipped = report.skipped.filter(
+          (s: { reason: string }) => s.reason === 'catalog',
+        );
+        assert.equal(catalogSkipped.length, 2);
+
+        const tableResult = await runCli(
+          [
+            '--path',
+            catalogProject.packageJsonPath,
+            '--format',
+            'table',
+            '--no-cache',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(tableResult.exitCode, 0, tableResult.stderr);
+        assert.match(
+          tableResult.stdout,
+          /pnpm catalog reference\(s\).*typescript/,
+        );
+      } finally {
+        await catalogProject.cleanup();
+      }
+    });
+
     it('surfaces a "-" pnpm override as override-removal', async () => {
       const pnpmProject = await createTmpProject({
         packageJson: {
