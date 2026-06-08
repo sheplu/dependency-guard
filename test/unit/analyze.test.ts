@@ -1,9 +1,9 @@
 import { strict as assert } from 'node:assert';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { runAnalysis } from '../../src/analyze.ts';
+import { isOverrideType, runAnalysis } from '../../src/analyze.ts';
 import { Cache } from '../../src/cache.ts';
 import { RegistryClient } from '../../src/registry.ts';
 import type { CliOptions } from '../../src/types.ts';
@@ -1510,5 +1510,118 @@ describe('runAnalysis registry HTTP error handling', () => {
         }),
       /Failed to analyze broken: boom/,
     );
+  });
+});
+
+describe('isOverrideType', () => {
+  it('returns true for override types', () => {
+    assert.equal(isOverrideType('overrides'), true);
+    assert.equal(isOverrideType('resolutions'), true);
+    assert.equal(isOverrideType('pnpm.overrides'), true);
+  });
+
+  it('returns false for non-override types including catalog', () => {
+    assert.equal(isOverrideType('catalog'), false);
+    assert.equal(isOverrideType('dependencies'), false);
+    assert.equal(isOverrideType('devDependencies'), false);
+  });
+});
+
+describe('runAnalysis with --catalog', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'dep-guard-catalog-analyze-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('includes catalog entries in report.dependencies when workspace file is present', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { lodash: '4.17.21' } }),
+    );
+    await writeFile(
+      join(dir, 'pnpm-workspace.yaml'),
+      'catalog:\n  react: ^18.0.0\n',
+    );
+    await mkdir(join(dir, 'node_modules', 'lodash'), { recursive: true });
+    await writeFile(
+      join(dir, 'node_modules', 'lodash', 'package.json'),
+      JSON.stringify({ name: 'lodash', version: '4.17.21' }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: ((url: string) => {
+        const name = decodeURIComponent(url.split('/').pop() ?? '');
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              name,
+              versions: { '4.17.21': {}, '18.0.0': {}, '18.2.0': {} },
+              time: {
+                '4.17.21': '2020-01-01T00:00:00Z',
+                '18.0.0': '2022-01-01T00:00:00Z',
+                '18.2.0': '2023-01-01T00:00:00Z',
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }) as unknown as typeof fetch,
+    });
+
+    const report = await runAnalysis(
+      { ...baseAnalyzeOptions(join(dir, 'package.json')), catalog: true },
+      { registry, cache },
+    );
+
+    const catalogDep = report.dependencies.find((d) => d.name === 'react');
+    assert.ok(catalogDep, 'react catalog entry should appear in dependencies');
+    assert.equal(catalogDep.type, 'catalog');
+  });
+
+  it('runs normally without error when no pnpm-workspace.yaml is found', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { lodash: '4.17.21' } }),
+    );
+    await mkdir(join(dir, 'node_modules', 'lodash'), { recursive: true });
+    await writeFile(
+      join(dir, 'node_modules', 'lodash', 'package.json'),
+      JSON.stringify({ name: 'lodash', version: '4.17.21' }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: ((url: string) => {
+        const name = decodeURIComponent(url.split('/').pop() ?? '');
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              name,
+              versions: { '4.17.21': {} },
+              time: { '4.17.21': '2020-01-01T00:00:00Z' },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }) as unknown as typeof fetch,
+    });
+
+    const report = await runAnalysis(
+      { ...baseAnalyzeOptions(join(dir, 'package.json')), catalog: true },
+      { registry, cache },
+    );
+
+    assert.ok(Array.isArray(report.dependencies));
+    assert.equal(report.dependencies.find((d) => d.type === 'catalog'), undefined);
   });
 });

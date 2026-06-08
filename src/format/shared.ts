@@ -32,6 +32,8 @@ export function typeShort(type: DependencyType): string {
       return 'resol';
     case 'pnpm.overrides':
       return 'pnpm';
+    case 'catalog':
+      return 'catalog';
   }
 }
 

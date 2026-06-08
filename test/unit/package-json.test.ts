@@ -4,10 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
+  TYPE_ORDER,
   collectDependencies,
   collectOverrides,
   collectPnpmOverrides,
   collectResolutions,
+  isCatalogSpec,
 } from '../../src/package-json.ts';
 
 describe('collectDependencies', () => {
@@ -511,5 +513,31 @@ describe('collectPnpmOverrides', () => {
     const { entries, skipped } = collectPnpmOverrides({ zod: 'catalog:react18' });
     assert.deepEqual(entries, []);
     assert.deepEqual(skipped, [{ name: 'zod', reason: 'catalog' }]);
+  });
+});
+
+describe('TYPE_ORDER', () => {
+  it('includes catalog at position 7', () => {
+    assert.equal(TYPE_ORDER['catalog'], 7);
+  });
+
+  it('catalog sorts after pnpm.overrides', () => {
+    assert.ok(TYPE_ORDER['catalog'] > TYPE_ORDER['pnpm.overrides']);
+  });
+});
+
+describe('isCatalogSpec', () => {
+  it('returns true for catalog: (default)', () => {
+    assert.equal(isCatalogSpec('catalog:'), true);
+  });
+
+  it('returns true for catalog:name (named)', () => {
+    assert.equal(isCatalogSpec('catalog:tooling'), true);
+  });
+
+  it('returns false for regular semver specs', () => {
+    assert.equal(isCatalogSpec('^1.0.0'), false);
+    assert.equal(isCatalogSpec('1.0.0'), false);
+    assert.equal(isCatalogSpec('workspace:*'), false);
   });
 });

@@ -5,7 +5,8 @@ export type DependencyType =
   | 'optionalDependencies'
   | 'overrides'
   | 'resolutions'
-  | 'pnpm.overrides';
+  | 'pnpm.overrides'
+  | 'catalog';
 
 export type SkippedReason =
   | 'ignored-scope'
@@ -78,6 +79,7 @@ export interface CliOptions {
   overrides: boolean;
   resolutions: boolean;
   pnpmOverrides: boolean;
+  catalog?: boolean;
   cache: boolean;
   cacheTtlMinutes: number;
   ignoredScopes: string[];

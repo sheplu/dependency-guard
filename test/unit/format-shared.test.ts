@@ -11,6 +11,7 @@ describe('typeShort', () => {
     assert.equal(typeShort('overrides'), 'over');
     assert.equal(typeShort('resolutions'), 'resol');
     assert.equal(typeShort('pnpm.overrides'), 'pnpm');
+    assert.equal(typeShort('catalog'), 'catalog');
   });
 });
 

@@ -1,8 +1,9 @@
 import { dirname } from 'node:path';
 import { analyzeDependency, summarize } from './analyzer.ts';
+import { collectCatalogEntries, findWorkspaceFile } from './catalog.ts';
 import { Cache } from './cache.ts';
 import { expandWithLockfile } from './lockfile.ts';
-import { collectDependencies, type DependencyEntry } from './package-json.ts';
+import { TYPE_ORDER, collectDependencies, type DependencyEntry } from './package-json.ts';
 import { RegistryClient, RegistryHttpError } from './registry.ts';
 import type {
   AnalysisReport,
@@ -53,9 +54,24 @@ export async function runAnalysis(
   }));
   const onlySet = options.onlyNames.length > 0 ? new Set(options.onlyNames) : null;
 
+  // Collect catalog entries from pnpm-workspace.yaml when --catalog is active.
+  const catalogDirect: DependencyEntry[] = [];
+  if (options.catalog) {
+    const workspaceFile = await findWorkspaceFile(dirname(options.path));
+    if (workspaceFile) {
+      catalogDirect.push(...await collectCatalogEntries(workspaceFile, dirname(options.path)));
+    }
+  }
+
+  // Merge regular entries with catalog entries, preserving TYPE_ORDER sort.
+  const allDirect = [...collected.entries, ...catalogDirect].sort((a, b) => {
+    const typeDiff = TYPE_ORDER[a.type] - TYPE_ORDER[b.type];
+    return typeDiff !== 0 ? typeDiff : a.name.localeCompare(b.name);
+  });
+
   // Step 1: filter direct deps by --ignore-scope and --only.
   const directKept: DependencyEntry[] = [];
-  for (const entry of collected.entries) {
+  for (const entry of allDirect) {
     const matched = matchScope(entry.name, options.ignoredScopes);
     if (matched !== null) {
       skipped.push({ name: entry.name, type: entry.type, reason: 'ignored-scope', scope: matched });
