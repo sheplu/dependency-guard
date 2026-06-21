@@ -20,6 +20,7 @@ describe('formatTable', () => {
           updateType: 'major',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
         {
           name: 'lodash',
@@ -33,11 +34,12 @@ describe('formatTable', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-
     const out = formatTable(report, { color: false });
     assert.match(out, /Summary:/);
     assert.match(out, /Total: 2/);
@@ -72,6 +74,7 @@ describe('formatTable', () => {
           updateType: 'major',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
         {
           name: 'b-minor',
@@ -85,6 +88,7 @@ describe('formatTable', () => {
           updateType: 'minor',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
         {
           name: 'c-uptodate',
@@ -98,11 +102,13 @@ describe('formatTable', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatTable(report, { color: true });
+      const out = formatTable(report, { color: true });
     // eslint-disable-next-line no-control-regex
     assert.match(out, /\x1b\[31m/);
     // eslint-disable-next-line no-control-regex
@@ -127,11 +133,13 @@ describe('formatTable', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatTable(report, { color: false, quiet: true });
+      const out = formatTable(report, { color: false, quiet: true });
     assert.doesNotMatch(out, /Summary:/);
     assert.match(out, /│ Package /);
     assert.match(out, /lodash/);
@@ -153,6 +161,7 @@ describe('formatTable', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
         {
           name: 'body-parser',
@@ -166,11 +175,13 @@ describe('formatTable', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: true,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatTable(report, { color: false });
+      const out = formatTable(report, { color: false });
     assert.match(out, /│ express\s+│/);
     assert.match(out, /│ ↳ body-parser\s+│/);
   });
@@ -191,11 +202,13 @@ describe('formatTable', () => {
           updateType: 'up-to-date',
           deprecated: 'request has been deprecated',
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatTable(report, { color: false });
+      const out = formatTable(report, { color: false });
     assert.match(out, /request ⚠/);
   });
 
@@ -215,6 +228,7 @@ describe('formatTable', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
         {
           name: 'pnpm-pin',
@@ -228,11 +242,13 @@ describe('formatTable', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatTable(report, { color: false });
+      const out = formatTable(report, { color: false });
     assert.match(out, /yarn-pin\s+│\s+resol\s+│/);
     assert.match(out, /pnpm-pin\s+│\s+pnpm\s+│/);
   });
@@ -253,11 +269,13 @@ describe('formatTable', () => {
           updateType: 'patch',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatTable(report, { color: false });
+      const out = formatTable(report, { color: false });
     // Summary line still surfaces the patch tier
     assert.match(out, /Patch updates: 1/);
     // Status column still tags patch-only rows
@@ -275,8 +293,9 @@ describe('formatTable', () => {
       summary: { total: 0, upToDate: 0, patchUpdates: 0, minorUpdates: 0, majorUpdates: 0 },
       dependencies: [],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatTable(report);
+      const out = formatTable(report);
     assert.match(out, /Summary:/);
   });
 
@@ -296,11 +315,13 @@ describe('formatTable', () => {
           updateType: 'patch',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatTable(report, { color: false });
+      const out = formatTable(report, { color: false });
     assert.match(out, /│ Patch /);
     assert.doesNotMatch(out, /│ Minor /);
     assert.doesNotMatch(out, /│ Major /);
@@ -322,11 +343,13 @@ describe('formatTable', () => {
           updateType: 'minor',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatTable(report, { color: false });
+      const out = formatTable(report, { color: false });
     assert.doesNotMatch(out, /│ Patch /);
     assert.match(out, /│ Minor /);
     assert.doesNotMatch(out, /│ Major /);
@@ -348,11 +371,13 @@ describe('formatTable', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatTable(report, { color: false });
+      const out = formatTable(report, { color: false });
     assert.doesNotMatch(out, /│ Patch /);
     assert.doesNotMatch(out, /│ Minor /);
     assert.doesNotMatch(out, /│ Major /);
@@ -376,14 +401,76 @@ describe('formatTable', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
     const out = formatTable(report, { color: false, allColumns: true });
     assert.match(out, /│ Patch /);
     assert.match(out, /│ Minor /);
     assert.match(out, /│ Major /);
     assert.match(out, /4\.17\.21\s+│\s+-\s+│\s+-\s+│\s+-\s+│/);
+  });
+
+  it('marks the tier of a held-back version with ⏳', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 0, patchUpdates: 0, minorUpdates: 1, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'express',
+          type: 'dependencies',
+          current: { version: '4.18.2', publishedAt: null },
+          latestPatch: null,
+          latestMinor: { version: '4.20.0', publishedAt: null },
+          latestMajor: null,
+          ageInDays: 400,
+          latestAgeInDays: 120,
+          updateType: 'minor',
+          deprecated: null,
+          transitive: false,
+          heldBack: { patch: null, minor: { version: '4.21.0', publishedAt: null, ageInDays: 2 }, major: null },
+        },
+      ],
+      skipped: [],
+      releaseAge: { days: 30, source: 'npm', file: '/tmp/.npmrc', exclude: [] },
+    };
+    const out = formatTable(report, { color: false });
+    assert.match(out, /4\.20\.0 ⏳/);
+  });
+
+  it('reveals a held-back-only tier under showTrueLatest', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 1, patchUpdates: 0, minorUpdates: 0, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'express',
+          type: 'dependencies',
+          current: { version: '4.20.0', publishedAt: null },
+          latestPatch: null,
+          latestMinor: null,
+          latestMajor: null,
+          ageInDays: 120,
+          latestAgeInDays: 120,
+          updateType: 'up-to-date',
+          deprecated: null,
+          transitive: false,
+          heldBack: { patch: null, minor: { version: '4.21.0', publishedAt: null, ageInDays: 2 }, major: null },
+        },
+      ],
+      skipped: [],
+      releaseAge: { days: 30, source: 'npm', file: '/tmp/.npmrc', exclude: [] },
+    };
+    const shown = formatTable(report, { color: false, showTrueLatest: true });
+    assert.match(shown, /4\.21\.0 ⏳/);
+    // Without the flag the held-back-only tier collapses (column hidden entirely).
+    const hidden = formatTable(report, { color: false });
+    assert.doesNotMatch(hidden, /4\.21\.0/);
+    assert.doesNotMatch(hidden, /⏳/);
+    // With allColumns the Minor column stays, showing a bare marker (no version).
+    const forced = formatTable(report, { color: false, allColumns: true });
+    assert.match(forced, /⏳/);
+    assert.doesNotMatch(forced, /4\.21\.0/);
   });
 });

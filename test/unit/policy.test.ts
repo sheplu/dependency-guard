@@ -16,6 +16,7 @@ function dep(overrides: Partial<DependencyAnalysis>): DependencyAnalysis {
     updateType: 'up-to-date',
     deprecated: null,
     transitive: false,
+    heldBack: null,
     ...overrides,
   };
 }
@@ -25,6 +26,7 @@ function makeReport(deps: DependencyAnalysis[]): AnalysisReport {
     summary: { total: deps.length, upToDate: 0, patchUpdates: 0, minorUpdates: 0, majorUpdates: 0 },
     dependencies: deps,
     skipped: [],
+    releaseAge: null,
   };
 }
 

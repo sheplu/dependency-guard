@@ -31,6 +31,8 @@ function baseAnalyzeOptions(path: string): CliOptions {
     updateLevel: null,
     dryRun: false,
     allColumns: false,
+    releaseAge: true,
+    showTrueLatest: false,
     onlyNames: [],
   };
 }
@@ -101,7 +103,8 @@ describe('runAnalysis', () => {
             updateLevel: null,
             dryRun: false,
             allColumns: false,
-            onlyNames: [],
+            releaseAge: true,
+            showTrueLatest: false,            onlyNames: [],
           },
           { registry, cache },
         ),
@@ -148,7 +151,8 @@ describe('runAnalysis', () => {
             updateLevel: null,
             dryRun: false,
             allColumns: false,
-            onlyNames: [],
+            releaseAge: true,
+            showTrueLatest: false,            onlyNames: [],
           },
           { registry, cache },
         ),
@@ -202,7 +206,8 @@ describe('runAnalysis', () => {
             updateLevel: null,
             dryRun: false,
             allColumns: false,
-        onlyNames: [],
+            releaseAge: true,
+            showTrueLatest: false,        onlyNames: [],
       },
       { registry, cache },
     );
@@ -264,7 +269,8 @@ describe('runAnalysis', () => {
             updateLevel: null,
             dryRun: false,
             allColumns: false,
-        onlyNames: [],
+            releaseAge: true,
+            showTrueLatest: false,        onlyNames: [],
       },
       { registry, cache },
     );
@@ -317,7 +323,8 @@ describe('runAnalysis', () => {
             updateLevel: null,
             dryRun: false,
             allColumns: false,
-        onlyNames: [],
+            releaseAge: true,
+            showTrueLatest: false,        onlyNames: [],
       },
       { registry, cache },
     );
@@ -369,7 +376,8 @@ describe('runAnalysis', () => {
             updateLevel: null,
             dryRun: false,
             allColumns: false,
-        onlyNames: [],
+            releaseAge: true,
+            showTrueLatest: false,        onlyNames: [],
       },
       { registry, cache },
     );
@@ -463,7 +471,8 @@ describe('runAnalysis sorting', () => {
             updateLevel: null,
             dryRun: false,
             allColumns: false,
-    };
+            releaseAge: true,
+            showTrueLatest: false,    };
   }
 
   it('sortBy null preserves the type-then-name order from collectDependencies', async () => {
@@ -703,7 +712,8 @@ describe('runAnalysis --only filter', () => {
             updateLevel: null,
             dryRun: false,
             allColumns: false,
-      ...overrides,
+            releaseAge: true,
+            showTrueLatest: false,      ...overrides,
     };
   }
 
@@ -971,7 +981,8 @@ describe('runAnalysis overrides composition', () => {
       updateLevel: null,
       dryRun: false,
       allColumns: false,
-      ...over,
+      releaseAge: true,
+      showTrueLatest: false,      ...over,
     };
   }
 
@@ -1144,7 +1155,8 @@ describe('runAnalysis resolutions composition', () => {
       updateLevel: null,
       dryRun: false,
       allColumns: false,
-      ...over,
+      releaseAge: true,
+      showTrueLatest: false,      ...over,
     };
   }
 
@@ -1289,7 +1301,8 @@ describe('runAnalysis pnpm.overrides composition', () => {
       updateLevel: null,
       dryRun: false,
       allColumns: false,
-      ...over,
+      releaseAge: true,
+      showTrueLatest: false,      ...over,
     };
   }
 
@@ -1510,6 +1523,62 @@ describe('runAnalysis registry HTTP error handling', () => {
         }),
       /Failed to analyze broken: boom/,
     );
+  });
+
+  it('applies an injected release-age config (deps.releaseAgeConfig)', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { 'demo-pkg': '1.0.0' } }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: fetchByName((name) => ({
+        body: {
+          name,
+          versions: { '1.0.0': {}, '1.1.0': {} },
+          // 1.1.0 published "today" so it is inside any non-trivial window.
+          time: { '1.0.0': '2026-01-01T00:00:00Z', '1.1.0': new Date().toISOString() },
+        },
+      })),
+    });
+
+    const report = await runAnalysis(baseAnalyzeOptions(join(dir, 'package.json')), {
+      registry,
+      cache,
+      releaseAgeConfig: { days: 30, exclude: [], source: 'npm', file: '/injected/.npmrc' },
+    });
+
+    assert.ok(report.releaseAge);
+    assert.equal(report.releaseAge.days, 30);
+    assert.equal(report.releaseAge.file, '/injected/.npmrc');
+    const dep = report.dependencies[0];
+    assert.ok(dep.heldBack);
+    assert.equal(dep.heldBack.minor?.version, '1.1.0');
+  });
+
+  it('skips release-age resolution entirely when options.releaseAge is false', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { 'demo-pkg': '1.0.0' } }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: fetchByName(() => ({})),
+    });
+
+    const report = await runAnalysis(
+      { ...baseAnalyzeOptions(join(dir, 'package.json')), releaseAge: false },
+      // An injected config must be ignored when releaseAge is off.
+      { registry, cache, releaseAgeConfig: { days: 30, exclude: [], source: 'npm', file: '/x' } },
+    );
+
+    assert.equal(report.releaseAge, null);
   });
 });
 

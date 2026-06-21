@@ -20,11 +20,12 @@ describe('formatJson', () => {
           updateType: 'major',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-
     const out = JSON.parse(formatJson(report));
     assert.deepEqual(out, report);
   });

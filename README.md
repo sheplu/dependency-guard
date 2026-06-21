@@ -74,12 +74,52 @@ Summary:
 | `--optional` | | Only check optional dependencies | `false` |
 | `--no-cache` | | Disable caching of registry responses | `false` |
 | `--registry <url>` | | Registry URL to query (also via `DEPENDENCY_GUARD_REGISTRY_URL` env var) | `https://registry.npmjs.org` |
+| `--no-release-age` | | Ignore the configured minimum-release-age cooldown | `false` |
+| `--show-true-latest` | | Reveal versions withheld by the cooldown (display only) | `false` |
 | `--help` | `-h` | Show help | |
 | `--version` | `-v` | Show version number | |
 
 > Run `dependency-guard --help` for the full set of flags, including
 > `--ignore-scope`, `--only`, `--quiet`, `--cache-clear`, `--cache-ttl`,
 > `--fail-on`, `--max-age`, and `--sort`.
+
+## Minimum Release Age (cooldown)
+
+The package managers can delay installing freshly-published versions — a
+mitigation against supply-chain attacks where a compromised release is yanked
+within hours. `dependency-guard` honors that same cooldown so the "latest"
+versions it reports match what your installer would actually pick.
+
+The cooldown is auto-detected by walking up from your `package.json` and reading
+whichever config it finds first:
+
+| Manager | Config file | Key | Unit |
+|---------|-------------|-----|------|
+| npm | `.npmrc` | `min-release-age` (+ `min-release-age-exclude`) | days |
+| pnpm | `pnpm-workspace.yaml` | `minimumReleaseAge` (+ `minimumReleaseAgeExclude`) | minutes |
+| yarn | `.yarnrc.yml` | `npmMinimalAgeGate` | duration string (e.g. `1w`) |
+
+Versions younger than the window are held back: the chosen Patch/Minor/Major
+becomes the newest *eligible* version, and the withheld one is marked with `⏳`.
+When more than one config defines a window, the most conservative (largest) one
+wins.
+
+```bash
+# A package config sets a 7-day cooldown — newer releases are held back:
+dependency-guard
+#   express  4.18.2 → 4.20.0 ⏳   (4.21.0 withheld: only 2d old)
+#   ⏳ Minimum release age: 7 days (from npm config: .npmrc)
+
+# See what's being withheld:
+dependency-guard --show-true-latest
+
+# Ignore the cooldown entirely:
+dependency-guard --no-release-age
+```
+
+Excluded packages (via `min-release-age-exclude` / `minimumReleaseAgeExclude`)
+bypass the cooldown. `--update` always targets eligible versions, so it never
+pulls in a release still inside the window.
 
 ## Custom Registry
 

@@ -1,5 +1,6 @@
 import { dirname } from 'node:path';
 import { parseArgs } from 'node:util';
+import { formatAge } from './age.ts';
 import { runAnalysis } from './analyze.ts';
 import { applyCatalogUpdates, collectCatalogEntries, findWorkspaceFile } from './catalog.ts';
 import { Cache } from './cache.ts';
@@ -54,6 +55,10 @@ Options:
                                major → major + minor + patch
                                all   → alias for major (everything available)
       --dry-run              With --update, preview the changes without writing
+      --no-release-age       Ignore the minimum-release-age cooldown configured
+                             in .npmrc / pnpm-workspace.yaml / .yarnrc.yml
+      --show-true-latest     Reveal versions withheld by the cooldown (display
+                             only; the chosen upgrade target is unaffected)
   -h, --help                 Show help
   -v, --version              Show version number
 `;
@@ -94,6 +99,8 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
         'include-transitive': { type: 'boolean', default: false },
         update: { type: 'string' },
         'dry-run': { type: 'boolean', default: false },
+        'release-age': { type: 'boolean', default: true },
+        'show-true-latest': { type: 'boolean', default: false },
         'all-columns': { type: 'boolean', default: false },
         quiet: { type: 'boolean', short: 'q', default: false },
         help: { type: 'boolean', short: 'h', default: false },
@@ -133,6 +140,8 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     'include-transitive': boolean;
     update?: string;
     'dry-run': boolean;
+    'release-age': boolean;
+    'show-true-latest': boolean;
     'all-columns': boolean;
     quiet: boolean;
     help: boolean;
@@ -256,6 +265,8 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
     updateLevel,
     dryRun: values['dry-run'],
     allColumns: values['all-columns'],
+    releaseAge: values['release-age'],
+    showTrueLatest: values['show-true-latest'],
   };
 
   let extraStderr = '';
@@ -289,9 +300,16 @@ export async function run(argv: ReadonlyArray<string>): Promise<RunResult> {
 
   try {
     const report = await runAnalysis(options);
-    let out = render(report, options.format, { quiet: options.quiet, allColumns: options.allColumns });
+    let out = render(report, options.format, {
+      quiet: options.quiet,
+      allColumns: options.allColumns,
+      showTrueLatest: options.showTrueLatest,
+    });
     if (options.format !== 'json' && report.skipped.length > 0) {
       out += '\n\n' + skippedSummary(report);
+    }
+    if (options.format !== 'json' && report.releaseAge !== null) {
+      out += '\n\n' + releaseAgeSummary(report);
     }
 
     if (options.onlyNames.length > 0) {
@@ -506,12 +524,50 @@ function skippedSummary(report: AnalysisReport): string {
 interface RenderOptions {
   quiet: boolean;
   allColumns: boolean;
+  showTrueLatest: boolean;
 }
 
 function render(report: AnalysisReport, format: OutputFormat, opts: RenderOptions): string {
   if (format === 'json') return formatJson(report);
-  if (format === 'markdown') return formatMarkdown(report, { quiet: opts.quiet });
-  return formatTable(report, { quiet: opts.quiet, allColumns: opts.allColumns });
+  if (format === 'markdown') {
+    return formatMarkdown(report, { quiet: opts.quiet, showTrueLatest: opts.showTrueLatest });
+  }
+  return formatTable(report, {
+    quiet: opts.quiet,
+    allColumns: opts.allColumns,
+    showTrueLatest: opts.showTrueLatest,
+  });
+}
+
+function releaseAgeSummary(report: AnalysisReport): string {
+  const useColor = Boolean(process.stdout.isTTY);
+  const info = report.releaseAge!;
+  const held = report.dependencies.filter((d) => d.heldBack !== null);
+  const window = info.days === 1 ? '1 day' : `${formatDays(info.days)} days`;
+  const lines = [
+    `Minimum release age: ${window} (from ${info.source} config: ${info.file})`,
+  ];
+  if (held.length > 0) {
+    const names = held
+      .map((d) => {
+        // held is filtered to heldBack !== null, and computeHeldBack only returns
+        // non-null when at least one tier is populated, so newest is always set.
+        const hb = d.heldBack!;
+        const newest = (hb.major ?? hb.minor ?? hb.patch)!;
+        return `${d.name} ${newest.version} (${formatAge(newest.ageInDays)} old)`;
+      })
+      .join(', ');
+    const noun = held.length === 1 ? 'package' : 'packages';
+    lines.push(
+      `Holding back ${held.length} ${noun} with newer versions inside the cooldown window: ${names}`,
+    );
+    lines.push('Run with --show-true-latest to see them, or --no-release-age to ignore the cooldown.');
+  }
+  return colorize(lines.join('\n'), 'cyan', useColor);
+}
+
+function formatDays(days: number): string {
+  return Number.isInteger(days) ? String(days) : days.toFixed(1);
 }
 
 function isOutputFormat(value: string): value is OutputFormat {

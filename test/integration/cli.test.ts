@@ -4009,4 +4009,207 @@ packages:
       }
     });
   });
+
+  describe('minimum release age (cooldown)', () => {
+    const daysAgo = (n: number): string =>
+      new Date(Date.now() - n * 86_400_000).toISOString();
+
+    async function startAgeRegistry() {
+      // express: 4.21.0 published recently (within cooldown), 4.20.0 older.
+      return startMockRegistry([
+        {
+          name: 'express',
+          versions: {
+            '4.18.2': { version: '4.18.2' },
+            '4.20.0': { version: '4.20.0' },
+            '4.21.0': { version: '4.21.0' },
+          },
+          time: {
+            '4.18.2': daysAgo(400),
+            '4.20.0': daysAgo(120),
+            '4.21.0': daysAgo(2),
+          },
+        },
+      ]);
+    }
+
+    it('holds back a fresh version and reports it via JSON', async () => {
+      const reg = await startAgeRegistry();
+      const proj = await createTmpProject({
+        packageJson: {
+          name: 'fixture-age',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+      });
+      await writeFile(join(proj.dir, '.npmrc'), 'min-release-age=30\n');
+      try {
+        const result = await runCli(
+          ['--path', proj.packageJsonPath, '--format', 'json', '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: reg.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        assert.equal(report.releaseAge.days, 30);
+        assert.equal(report.releaseAge.source, 'npm');
+        const express = report.dependencies.find((d: { name: string }) => d.name === 'express');
+        // 4.21.0 is 2 days old → withheld; 4.20.0 (120 days) is the chosen minor.
+        assert.equal(express.latestMinor.version, '4.20.0');
+        assert.ok(express.heldBack);
+        assert.equal(express.heldBack.minor.version, '4.21.0');
+      } finally {
+        await proj.cleanup();
+        await reg.close();
+      }
+    });
+
+    it('--no-release-age ignores the cooldown and shows the true latest', async () => {
+      const reg = await startAgeRegistry();
+      const proj = await createTmpProject({
+        packageJson: {
+          name: 'fixture-age',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+      });
+      await writeFile(join(proj.dir, '.npmrc'), 'min-release-age=30\n');
+      try {
+        const result = await runCli(
+          ['--path', proj.packageJsonPath, '--format', 'json', '--no-cache', '--no-release-age'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: reg.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+        assert.equal(report.releaseAge, null);
+        const express = report.dependencies.find((d: { name: string }) => d.name === 'express');
+        assert.equal(express.latestMinor.version, '4.21.0');
+        assert.equal(express.heldBack, null);
+      } finally {
+        await proj.cleanup();
+        await reg.close();
+      }
+    });
+
+    it('prints a cooldown note in table output', async () => {
+      const reg = await startAgeRegistry();
+      const proj = await createTmpProject({
+        packageJson: {
+          name: 'fixture-age',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+      });
+      await writeFile(join(proj.dir, '.npmrc'), 'min-release-age=30\n');
+      try {
+        const result = await runCli(
+          ['--path', proj.packageJsonPath, '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: reg.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(result.stdout, /Minimum release age: 30 days/);
+        assert.match(result.stdout, /Holding back 1 package/);
+      } finally {
+        await proj.cleanup();
+        await reg.close();
+      }
+    });
+
+    it('reports a fractional, sub-day window and plural held-back packages', async () => {
+      // Two packages each with a fresh major held back; pnpm 720 min = 0.5 days.
+      const reg = await startMockRegistry([
+        {
+          name: 'alpha',
+          versions: { '1.0.0': { version: '1.0.0' }, '2.0.0': { version: '2.0.0' } },
+          time: { '1.0.0': daysAgo(400), '2.0.0': daysAgo(0) },
+        },
+        {
+          name: 'beta',
+          versions: { '1.0.0': { version: '1.0.0' }, '2.0.0': { version: '2.0.0' } },
+          time: { '1.0.0': daysAgo(400), '2.0.0': daysAgo(0) },
+        },
+      ]);
+      const proj = await createTmpProject({
+        packageJson: {
+          name: 'fixture-age',
+          version: '1.0.0',
+          dependencies: { alpha: '^1.0.0', beta: '^1.0.0' },
+        },
+        installed: { alpha: '1.0.0', beta: '1.0.0' },
+      });
+      // pnpm minutes → 720 min = 0.5 days (exercises the fractional formatter).
+      await writeFile(join(proj.dir, 'pnpm-workspace.yaml'), 'minimumReleaseAge: 720\n');
+      try {
+        const result = await runCli(
+          ['--path', proj.packageJsonPath, '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: reg.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(result.stdout, /Minimum release age: 0\.5 days/);
+        assert.match(result.stdout, /Holding back 2 packages/);
+        assert.match(result.stdout, /alpha 2\.0\.0/);
+        assert.match(result.stdout, /beta 2\.0\.0/);
+      } finally {
+        await proj.cleanup();
+        await reg.close();
+      }
+    });
+
+    it('reports a package held back only in the patch tier', async () => {
+      const reg = await startMockRegistry([
+        {
+          name: 'gamma',
+          versions: { '1.0.0': { version: '1.0.0' }, '1.0.1': { version: '1.0.1' } },
+          time: { '1.0.0': daysAgo(400), '1.0.1': daysAgo(1) },
+        },
+      ]);
+      const proj = await createTmpProject({
+        packageJson: {
+          name: 'fixture-age',
+          version: '1.0.0',
+          dependencies: { gamma: '^1.0.0' },
+        },
+        installed: { gamma: '1.0.0' },
+      });
+      await writeFile(join(proj.dir, '.npmrc'), 'min-release-age=30\n');
+      try {
+        const result = await runCli(
+          ['--path', proj.packageJsonPath, '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: reg.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(result.stdout, /Holding back 1 package.*gamma 1\.0\.1/);
+      } finally {
+        await proj.cleanup();
+        await reg.close();
+      }
+    });
+
+    it('uses the singular "1 day" for a one-day window', async () => {
+      const reg = await startAgeRegistry();
+      const proj = await createTmpProject({
+        packageJson: {
+          name: 'fixture-age',
+          version: '1.0.0',
+          dependencies: { express: '^4.18.0' },
+        },
+        installed: { express: '4.18.2' },
+      });
+      // pnpm 1440 minutes = exactly 1 day.
+      await writeFile(join(proj.dir, 'pnpm-workspace.yaml'), 'minimumReleaseAge: 1440\n');
+      try {
+        const result = await runCli(
+          ['--path', proj.packageJsonPath, '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: reg.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(result.stdout, /Minimum release age: 1 day \(/);
+      } finally {
+        await proj.cleanup();
+        await reg.close();
+      }
+    });
+  });
 });
