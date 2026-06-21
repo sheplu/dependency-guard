@@ -6,6 +6,7 @@ export const ANSI = {
   green: `${ESC}[32m`,
   yellow: `${ESC}[33m`,
   red: `${ESC}[31m`,
+  cyan: `${ESC}[36m`,
   dim: `${ESC}[2m`,
 } as const;
 

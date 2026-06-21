@@ -20,11 +20,13 @@ describe('formatMarkdown', () => {
           updateType: 'major',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatMarkdown(report);
+      const out = formatMarkdown(report);
     assert.match(out, /## Dependency Report/);
     assert.match(out, /\| Package \| Type \| Current \|/);
     assert.match(out, /\| express \| prod \| 4\.18\.2 \| - \| 4\.21\.0 \| 5\.0\.1 \| 8mo \| 6mo \| ⬆ Major \|/);
@@ -46,11 +48,13 @@ describe('formatMarkdown', () => {
           updateType: 'patch',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatMarkdown(report);
+      const out = formatMarkdown(report);
     assert.match(out, /- Patch updates: 1/);
     assert.match(out, /\| Package \| Type \| Current \| Patch \| Minor \| Major \|/);
     assert.match(out, /\| express \| prod \| 4\.18\.2 \| 4\.18\.9 \| - \| - \|.*△ Patch \|/);
@@ -72,11 +76,13 @@ describe('formatMarkdown', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatMarkdown(report);
+      const out = formatMarkdown(report);
     assert.match(out, /\| lodash \| prod \| 4\.17\.21 \| - \| - \| - \| 2y \| 2y \| ✓ Up to date \|/);
   });
 
@@ -96,11 +102,13 @@ describe('formatMarkdown', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: true,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatMarkdown(report);
+      const out = formatMarkdown(report);
     assert.match(out, /\| ↳ body-parser \|/);
   });
 
@@ -120,11 +128,13 @@ describe('formatMarkdown', () => {
           updateType: 'up-to-date',
           deprecated: 'request has been deprecated',
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatMarkdown(report);
+      const out = formatMarkdown(report);
     assert.match(out, /\| request ⚠ \|/);
   });
 
@@ -144,6 +154,7 @@ describe('formatMarkdown', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
         {
           name: 'pnpm-pin',
@@ -157,11 +168,13 @@ describe('formatMarkdown', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatMarkdown(report);
+      const out = formatMarkdown(report);
     assert.match(out, /\| yarn-pin \| resol \|/);
     assert.match(out, /\| pnpm-pin \| pnpm \|/);
   });
@@ -182,14 +195,57 @@ describe('formatMarkdown', () => {
           updateType: 'up-to-date',
           deprecated: null,
           transitive: false,
+          heldBack: null,
         },
       ],
       skipped: [],
+      releaseAge: null,
     };
-    const out = formatMarkdown(report, { quiet: true });
+      const out = formatMarkdown(report, { quiet: true });
     assert.doesNotMatch(out, /## Dependency Report/);
     assert.doesNotMatch(out, /- Total:/);
     assert.match(out, /\| Package \|/);
     assert.match(out, /\| lodash \|/);
+  });
+
+  it('marks held-back versions and notes the cooldown', () => {
+    const report: AnalysisReport = {
+      summary: { total: 1, upToDate: 0, patchUpdates: 0, minorUpdates: 1, majorUpdates: 0 },
+      dependencies: [
+        {
+          name: 'express',
+          type: 'dependencies',
+          current: { version: '4.18.2', publishedAt: null },
+          latestPatch: null,
+          latestMinor: { version: '4.20.0', publishedAt: null },
+          latestMajor: null,
+          ageInDays: 400,
+          latestAgeInDays: 120,
+          updateType: 'minor',
+          deprecated: null,
+          transitive: false,
+          heldBack: { patch: null, minor: { version: '4.21.0', publishedAt: null, ageInDays: 2 }, major: null },
+        },
+      ],
+      skipped: [],
+      releaseAge: { days: 30, source: 'npm', file: '/tmp/.npmrc', exclude: [] },
+    };
+    // Without --show-true-latest: chosen minor shown with the ⏳ marker.
+    const out = formatMarkdown(report);
+    assert.match(out, /4\.20\.0 ⏳/);
+    assert.match(out, /Minimum release age: 30 days/);
+    // With --show-true-latest the withheld version is revealed in a held-back-only tier.
+    const shown = formatMarkdown({
+      ...report,
+      dependencies: [{ ...report.dependencies[0], latestMinor: null }],
+    }, { showTrueLatest: true });
+    assert.match(shown, /4\.21\.0 ⏳/);
+    // Held-back-only tier without --show-true-latest: a bare marker, no version.
+    const bare = formatMarkdown({
+      ...report,
+      dependencies: [{ ...report.dependencies[0], latestMinor: null }],
+    });
+    assert.match(bare, /\| ⏳ \|/);
+    assert.doesNotMatch(bare, /4\.21\.0/);
   });
 });

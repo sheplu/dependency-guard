@@ -45,6 +45,26 @@ export interface DependencyAnalysis {
   updateType: UpdateType;
   deprecated: string | null;
   transitive: boolean;
+  /**
+   * Per-tier versions withheld because they are younger than the configured
+   * minimum release age (cooldown). A tier is populated when a newer version
+   * exists for it but was suppressed in favor of an older eligible one (or no
+   * eligible upgrade at all). null when no cooldown applies, the package is
+   * excluded, or nothing is held back.
+   */
+  heldBack: HeldBackInfo | null;
+}
+
+export interface HeldBackVersion {
+  version: string;
+  publishedAt: string | null;
+  ageInDays: number | null;
+}
+
+export interface HeldBackInfo {
+  patch: HeldBackVersion | null;
+  minor: HeldBackVersion | null;
+  major: HeldBackVersion | null;
 }
 
 export interface AnalysisSummary {
@@ -67,6 +87,15 @@ export interface AnalysisReport {
   summary: AnalysisSummary;
   dependencies: DependencyAnalysis[];
   skipped: SkippedDependency[];
+  /** Active minimum-release-age cooldown, if one was resolved from config. */
+  releaseAge: ReleaseAgeInfo | null;
+}
+
+export interface ReleaseAgeInfo {
+  days: number;
+  source: 'npm' | 'pnpm' | 'yarn';
+  file: string;
+  exclude: string[];
 }
 
 export interface CliOptions {
@@ -93,6 +122,16 @@ export interface CliOptions {
   updateLevel: UpdateLevel | null;
   dryRun: boolean;
   allColumns: boolean;
+  /**
+   * Honor the minimum-release-age cooldown discovered from package-manager
+   * config (default true). When false, --no-release-age was passed.
+   */
+  releaseAge: boolean;
+  /**
+   * Show the true latest versions even when held back by the cooldown
+   * (--show-true-latest). Affects display only, not the chosen update target.
+   */
+  showTrueLatest: boolean;
 }
 
 export interface RegistryPackageMetadata {

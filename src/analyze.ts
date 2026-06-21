@@ -1,15 +1,17 @@
 import { dirname } from 'node:path';
-import { analyzeDependency, summarize } from './analyzer.ts';
+import { analyzeDependency, summarize, type Cooldown } from './analyzer.ts';
 import { collectCatalogEntries, findWorkspaceFile } from './catalog.ts';
 import { Cache } from './cache.ts';
 import { expandWithLockfile } from './lockfile.ts';
 import { TYPE_ORDER, collectDependencies, type DependencyEntry } from './package-json.ts';
 import { RegistryClient, RegistryHttpError } from './registry.ts';
+import { isExcluded, resolveReleaseAgeConfig, type ReleaseAgeConfig } from './release-age.ts';
 import type {
   AnalysisReport,
   CliOptions,
   DependencyAnalysis,
   DependencyType,
+  ReleaseAgeInfo,
   SkippedDependency,
   SortField,
   UpdateType,
@@ -23,6 +25,8 @@ export interface AnalyzeRunDeps {
   registry?: RegistryClient;
   cache?: Cache;
   now?: Date;
+  /** Override release-age resolution (tests). null disables; undefined auto-detects. */
+  releaseAgeConfig?: ReleaseAgeConfig | null;
 }
 
 export async function runAnalysis(
@@ -64,7 +68,7 @@ export async function runAnalysis(
   }
 
   // Merge regular entries with catalog entries, preserving TYPE_ORDER sort.
-  const allDirect = [...collected.entries, ...catalogDirect].sort((a, b) => {
+  const allDirect = [...collected.entries, ...catalogDirect].toSorted((a, b) => {
     const typeDiff = TYPE_ORDER[a.type] - TYPE_ORDER[b.type];
     return typeDiff !== 0 ? typeDiff : a.name.localeCompare(b.name);
   });
@@ -109,11 +113,26 @@ export async function runAnalysis(
     }
   }
 
+  // Resolve the minimum-release-age cooldown once, unless disabled via --no-release-age.
+  let releaseAgeConfig: ReleaseAgeConfig | null = null;
+  if (options.releaseAge) {
+    releaseAgeConfig =
+      deps.releaseAgeConfig !== undefined
+        ? deps.releaseAgeConfig
+        : (await resolveReleaseAgeConfig(dirname(options.path))).config;
+  }
+
   const analyses: DependencyAnalysis[] = [];
   for (const entry of kept) {
     try {
       const meta = await registry.getPackage(entry.name);
-      analyses.push(analyzeDependency({ entry, metadata: meta, now: deps.now }));
+      const cooldown: Cooldown | null = releaseAgeConfig
+        ? {
+            days: releaseAgeConfig.days,
+            excluded: isExcluded(entry.name, releaseAgeConfig.exclude),
+          }
+        : null;
+      analyses.push(analyzeDependency({ entry, metadata: meta, now: deps.now, cooldown }));
     } catch (err) {
       if (
         err instanceof RegistryHttpError &&
@@ -133,7 +152,15 @@ export async function runAnalysis(
   }
 
   const dependencies = options.sortBy !== null ? sortAnalyses(analyses, options.sortBy) : analyses;
-  return { summary: summarize(analyses), dependencies, skipped };
+  const releaseAge: ReleaseAgeInfo | null = releaseAgeConfig
+    ? {
+        days: releaseAgeConfig.days,
+        source: releaseAgeConfig.source,
+        file: releaseAgeConfig.file,
+        exclude: releaseAgeConfig.exclude,
+      }
+    : null;
+  return { summary: summarize(analyses), dependencies, skipped, releaseAge };
 }
 
 function matchScope(name: string, ignored: ReadonlyArray<string>): string | null {

@@ -227,6 +227,159 @@ describe('analyzeDependency', () => {
   });
 });
 
+describe('analyzeDependency with minimum-release-age cooldown', () => {
+  // NOW is 2026-05-18. 1.5.0 published 2026-05-10 is 8 days old; 1.4.0 is older.
+  const metadata = makeMetadata({
+    '1.2.3': '2026-01-01T00:00:00Z',
+    '1.4.0': '2026-03-01T00:00:00Z',
+    '1.5.0': '2026-05-10T00:00:00Z',
+  });
+
+  it('holds back a version younger than the cooldown and picks the older eligible one', () => {
+    const result = analyzeDependency({
+      entry: makeEntry('1.2.3'),
+      metadata,
+      now: NOW,
+      cooldown: { days: 14, excluded: false },
+    });
+    // 1.5.0 (8 days old) is withheld; 1.4.0 becomes the chosen minor.
+    assert.equal(result.latestMinor?.version, '1.4.0');
+    assert.equal(result.updateType, 'minor');
+    assert.ok(result.heldBack);
+    assert.equal(result.heldBack.minor?.version, '1.5.0');
+    assert.equal(result.heldBack.minor?.ageInDays, 8);
+    // The withheld 1.5.0 is the newest in this major, so it shows up under minor only.
+    assert.equal(result.heldBack.patch, null);
+  });
+
+  it('does not hold back when the true latest is already older than the cooldown', () => {
+    const result = analyzeDependency({
+      entry: makeEntry('1.2.3'),
+      metadata,
+      now: NOW,
+      cooldown: { days: 3, excluded: false },
+    });
+    assert.equal(result.latestMinor?.version, '1.5.0');
+    assert.equal(result.heldBack, null);
+  });
+
+  it('ignores the cooldown for excluded packages', () => {
+    const result = analyzeDependency({
+      entry: makeEntry('1.2.3'),
+      metadata,
+      now: NOW,
+      cooldown: { days: 14, excluded: true },
+    });
+    assert.equal(result.latestMinor?.version, '1.5.0');
+    assert.equal(result.heldBack, null);
+  });
+
+  it('leaves heldBack null when no cooldown is configured', () => {
+    const result = analyzeDependency({ entry: makeEntry('1.2.3'), metadata, now: NOW });
+    assert.equal(result.latestMinor?.version, '1.5.0');
+    assert.equal(result.heldBack, null);
+  });
+
+  it('reports up-to-date with a held-back version when every upgrade is inside the window', () => {
+    const result = analyzeDependency({
+      entry: makeEntry('1.4.0'),
+      metadata,
+      now: NOW,
+      cooldown: { days: 14, excluded: false },
+    });
+    assert.equal(result.updateType, 'up-to-date');
+    assert.equal(result.latestMinor, null);
+    assert.ok(result.heldBack);
+    assert.equal(result.heldBack.minor?.version, '1.5.0');
+  });
+
+  it('treats versions with unknown publish time as eligible', () => {
+    const result = analyzeDependency({
+      entry: makeEntry('1.2.3'),
+      metadata: makeMetadata({ '1.2.3': '2026-01-01T00:00:00Z', '1.5.0': '' }),
+      now: NOW,
+      cooldown: { days: 14, excluded: false },
+    });
+    assert.equal(result.latestMinor?.version, '1.5.0');
+    assert.equal(result.heldBack, null);
+  });
+
+  it('holds back a fresh minor even when a newer major is eligible', () => {
+    // 1.6.0 is fresh (held back in the minor tier); 2.0.0 is old (eligible major).
+    const result = analyzeDependency({
+      entry: makeEntry('1.2.3'),
+      metadata: makeMetadata({
+        '1.2.3': '2026-01-01T00:00:00Z',
+        '1.5.0': '2026-03-01T00:00:00Z',
+        '1.6.0': '2026-05-15T00:00:00Z', // 3 days old → withheld
+        '2.0.0': '2026-03-15T00:00:00Z', // old → eligible
+      }),
+      now: NOW,
+      cooldown: { days: 14, excluded: false },
+    });
+    assert.equal(result.updateType, 'major');
+    assert.equal(result.latestMajor?.version, '2.0.0');
+    // The eligible minor is 1.5.0, but 1.6.0 was suppressed in that tier.
+    assert.equal(result.latestMinor?.version, '1.5.0');
+    assert.ok(result.heldBack);
+    assert.equal(result.heldBack.minor?.version, '1.6.0');
+    assert.equal(result.heldBack.major, null); // 2.0.0 is eligible — nothing held in major
+  });
+
+  it('holds back only the patch tier when the fresh version is a patch', () => {
+    // 1.2.9 is fresh and a patch-level bump; no minor/major exists.
+    const result = analyzeDependency({
+      entry: makeEntry('1.2.3'),
+      metadata: makeMetadata({
+        '1.2.3': '2026-01-01T00:00:00Z',
+        '1.2.9': '2026-05-15T00:00:00Z', // 3 days old → withheld
+      }),
+      now: NOW,
+      cooldown: { days: 14, excluded: false },
+    });
+    assert.equal(result.updateType, 'up-to-date');
+    assert.ok(result.heldBack);
+    assert.equal(result.heldBack.patch?.version, '1.2.9');
+    assert.equal(result.heldBack.minor, null);
+    assert.equal(result.heldBack.major, null);
+  });
+
+  it('reports no held-back patch when the installed minor line has no other release', () => {
+    // No 1.2.x exists besides the (unpublished) installed version, so the patch
+    // tier has nothing to hold back even though a fresh minor is withheld.
+    const result = analyzeDependency({
+      entry: makeEntry('1.2.3'),
+      metadata: makeMetadata({
+        '1.3.0': '2026-03-01T00:00:00Z',
+        '1.5.0': '2026-05-15T00:00:00Z', // fresh → withheld minor
+      }),
+      now: NOW,
+      cooldown: { days: 14, excluded: false },
+    });
+    assert.ok(result.heldBack);
+    assert.equal(result.heldBack.patch, null);
+    assert.equal(result.heldBack.minor?.version, '1.5.0');
+  });
+
+  it('treats a version missing from the time map as eligible (no held-back)', () => {
+    // 1.5.0 is listed in versions but absent from time → undated → eligible.
+    const metadataNoTime: RegistryPackageMetadata = {
+      name: 'demo',
+      versions: ['1.2.3', '1.5.0'],
+      time: { '1.2.3': '2026-01-01T00:00:00Z' },
+      deprecations: {},
+    };
+    const result = analyzeDependency({
+      entry: makeEntry('1.2.3'),
+      metadata: metadataNoTime,
+      now: NOW,
+      cooldown: { days: 14, excluded: false },
+    });
+    assert.equal(result.latestMinor?.version, '1.5.0');
+    assert.equal(result.heldBack, null);
+  });
+});
+
 describe('summarize', () => {
   it('counts each updateType bucket', () => {
     const summary = summarize([
