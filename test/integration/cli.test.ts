@@ -9,6 +9,9 @@ import { createTmpProject, type TmpProject } from './helpers/tmp-project.ts';
 
 const BIN = resolve(import.meta.dirname, '..', '..', 'index.ts');
 
+const daysAgo = (n: number): string =>
+  new Date(Date.now() - n * 86_400_000).toISOString();
+
 interface SpawnResult {
   exitCode: number;
   stdout: string;
@@ -3852,7 +3855,7 @@ packages:
 
   describe('with --catalog', () => {
     it('includes catalog entries in JSON report with type catalog', async () => {
-      const registry = await startMockRegistry([
+      const catalogRegistry = await startMockRegistry([
         {
           name: 'react',
           versions: { '18.0.0': { version: '18.0.0' }, '18.3.0': { version: '18.3.0' } },
@@ -3866,7 +3869,7 @@ packages:
       try {
         const result = await runCli(
           ['--path', proj.packageJsonPath, '--catalog', '--format', 'json', '--no-cache'],
-          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+          { DEPENDENCY_GUARD_REGISTRY_URL: catalogRegistry.url },
         );
         assert.equal(result.exitCode, 0, result.stderr);
         const report = JSON.parse(result.stdout);
@@ -3875,12 +3878,12 @@ packages:
         assert.equal(catalogDep.type, 'catalog');
       } finally {
         await proj.cleanup();
-        await registry.close();
+        await catalogRegistry.close();
       }
     });
 
     it('shows catalog in the Type column of table output', async () => {
-      const registry = await startMockRegistry([
+      const catalogRegistry = await startMockRegistry([
         {
           name: 'react',
           versions: { '18.0.0': { version: '18.0.0' } },
@@ -3894,19 +3897,19 @@ packages:
       try {
         const result = await runCli(
           ['--path', proj.packageJsonPath, '--catalog', '--format', 'table', '--no-cache'],
-          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+          { DEPENDENCY_GUARD_REGISTRY_URL: catalogRegistry.url },
         );
         assert.equal(result.exitCode, 0, result.stderr);
         assert.match(result.stdout, /catalog/);
         assert.match(result.stdout, /react/);
       } finally {
         await proj.cleanup();
-        await registry.close();
+        await catalogRegistry.close();
       }
     });
 
     it('--catalog --update minor --dry-run previews without writing any file', async () => {
-      const registry = await startMockRegistry([
+      const catalogRegistry = await startMockRegistry([
         {
           name: 'react',
           versions: { '18.0.0': { version: '18.0.0' }, '18.3.0': { version: '18.3.0' } },
@@ -3921,19 +3924,19 @@ packages:
       try {
         const result = await runCli(
           ['--path', proj.packageJsonPath, '--catalog', '--update', 'minor', '--dry-run', '--no-cache'],
-          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+          { DEPENDENCY_GUARD_REGISTRY_URL: catalogRegistry.url },
         );
         assert.equal(result.exitCode, 0, result.stderr);
         const workspaceAfter = await readFile(join(proj.dir, 'pnpm-workspace.yaml'), 'utf8');
         assert.equal(workspaceAfter, originalWorkspace, 'workspace file should be unchanged after dry-run');
       } finally {
         await proj.cleanup();
-        await registry.close();
+        await catalogRegistry.close();
       }
     });
 
     it('--catalog --update minor rewrites pnpm-workspace.yaml and not package.json', async () => {
-      const registry = await startMockRegistry([
+      const catalogRegistry = await startMockRegistry([
         {
           name: 'react',
           versions: { '18.0.0': { version: '18.0.0' }, '18.3.0': { version: '18.3.0' } },
@@ -3948,7 +3951,7 @@ packages:
         const pkgBefore = await readFile(proj.packageJsonPath, 'utf8');
         const result = await runCli(
           ['--path', proj.packageJsonPath, '--catalog', '--update', 'minor', '--no-cache'],
-          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+          { DEPENDENCY_GUARD_REGISTRY_URL: catalogRegistry.url },
         );
         assert.equal(result.exitCode, 0, result.stderr);
         const workspaceAfter = await readFile(join(proj.dir, 'pnpm-workspace.yaml'), 'utf8');
@@ -3957,31 +3960,31 @@ packages:
         assert.equal(pkgAfter, pkgBefore, 'package.json should be unchanged');
       } finally {
         await proj.cleanup();
-        await registry.close();
+        await catalogRegistry.close();
       }
     });
 
     it('exits 0 with no catalog entries when pnpm-workspace.yaml is absent', async () => {
-      const registry = await startMockRegistry([]);
+      const catalogRegistry = await startMockRegistry([]);
       const proj = await createTmpProject({
         packageJson: { name: 'fixture-no-workspace', version: '1.0.0', dependencies: {} },
       });
       try {
         const result = await runCli(
           ['--path', proj.packageJsonPath, '--catalog', '--format', 'json', '--no-cache'],
-          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+          { DEPENDENCY_GUARD_REGISTRY_URL: catalogRegistry.url },
         );
         assert.equal(result.exitCode, 0, result.stderr);
         const report = JSON.parse(result.stdout);
         assert.equal(report.dependencies.filter((d: { type: string }) => d.type === 'catalog').length, 0);
       } finally {
         await proj.cleanup();
-        await registry.close();
+        await catalogRegistry.close();
       }
     });
 
     it('--ignore-scope filters catalog entries in the same scope', async () => {
-      const registry = await startMockRegistry([
+      const catalogRegistry = await startMockRegistry([
         {
           name: 'react',
           versions: { '18.0.0': { version: '18.0.0' } },
@@ -3995,7 +3998,7 @@ packages:
       try {
         const result = await runCli(
           ['--path', proj.packageJsonPath, '--catalog', '--ignore-scope', '@internal', '--format', 'json', '--no-cache'],
-          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+          { DEPENDENCY_GUARD_REGISTRY_URL: catalogRegistry.url },
         );
         assert.equal(result.exitCode, 0, result.stderr);
         const report = JSON.parse(result.stdout);
@@ -4005,15 +4008,12 @@ packages:
         assert.ok(skippedNames.includes("'@internal/lib'"), '@internal/lib should appear in skipped');
       } finally {
         await proj.cleanup();
-        await registry.close();
+        await catalogRegistry.close();
       }
     });
   });
 
   describe('minimum release age (cooldown)', () => {
-    const daysAgo = (n: number): string =>
-      new Date(Date.now() - n * 86_400_000).toISOString();
-
     async function startAgeRegistry() {
       // express: 4.21.0 published recently (within cooldown), 4.20.0 older.
       return startMockRegistry([
