@@ -190,6 +190,47 @@ describe('collectDependencies', () => {
     assert.equal(lodash?.installedVersion, '4.17.21');
   });
 
+  it('skips non-registry specs in direct deps and surfaces them in skipped', async () => {
+    const specDir = await mkdtemp(join(tmpdir(), 'dep-guard-spec-'));
+    try {
+      await writeFile(
+        join(specDir, 'package.json'),
+        JSON.stringify({
+          name: 'fixture-spec',
+          dependencies: {
+            express: '^4.18.0',
+            'local-pkg': 'workspace:*',
+            tarballed: 'file:./vendor/tarball.tgz',
+            aliased: 'npm:@myorg/thing@^1.0.0',
+            linked: 'link:../linked',
+            portaled: 'portal:../portaled',
+            gitdep: 'git+https://example.com/repo.git',
+            httpdep: 'https://example.com/repo.tgz',
+          },
+        }),
+      );
+      const { entries, skipped } = await collectDependencies(
+        join(specDir, 'package.json'),
+        { prod: false, dev: false, peer: false, optional: false, overrides: false, resolutions: false, pnpmOverrides: false },
+      );
+      assert.deepEqual(entries.map((e) => e.name), ['express']);
+      assert.deepEqual(
+        skipped.toSorted((a, b) => a.name.localeCompare(b.name)),
+        [
+          { name: 'aliased', type: 'dependencies', reason: 'override-descriptor' },
+          { name: 'gitdep', type: 'dependencies', reason: 'override-descriptor' },
+          { name: 'httpdep', type: 'dependencies', reason: 'override-descriptor' },
+          { name: 'linked', type: 'dependencies', reason: 'override-descriptor' },
+          { name: 'local-pkg', type: 'dependencies', reason: 'override-descriptor' },
+          { name: 'portaled', type: 'dependencies', reason: 'override-descriptor' },
+          { name: 'tarballed', type: 'dependencies', reason: 'override-descriptor' },
+        ],
+      );
+    } finally {
+      await rm(specDir, { recursive: true, force: true });
+    }
+  });
+
   it('skips catalog: deps and surfaces them in skipped', async () => {
     const catalogDir = await mkdtemp(join(tmpdir(), 'dep-guard-catalog-'));
     try {

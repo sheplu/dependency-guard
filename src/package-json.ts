@@ -239,6 +239,10 @@ export async function collectDependencies(
         skipped.push({ name, type, reason: 'catalog' });
         continue;
       }
+      if (!isAuditableSpec(spec)) {
+        skipped.push({ name, type, reason: 'override-descriptor' });
+        continue;
+      }
       const installed = await readInstalledVersion(projectDir, name);
       entries.push({
         name,
