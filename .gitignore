@@ -137,3 +137,29 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# AI tools
+.claude/
+.cursor/
+.aider*
+.continue/
+.codeium/
+.tabnine/
+.windsurf/
+.cody/
+.copilot/
+.github/copilot/
+.zed/
+.roo/
+.kiro/
+.qwen/
+.droid/
+.bolt/
+.gemini/
+.serena/
+.crystal/
+.agentic/
+.handsfree/
+.bloop/
+.mintlify/
+.mcp/
