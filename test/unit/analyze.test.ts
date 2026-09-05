@@ -1694,3 +1694,189 @@ describe('runAnalysis with --catalog', () => {
     assert.equal(report.dependencies.find((d) => d.type === 'catalog'), undefined);
   });
 });
+
+// ---------------------------------------------------------------------------
+// runAnalysis with workspace: deps
+// ---------------------------------------------------------------------------
+
+describe('runAnalysis with workspace: deps', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-analyze-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('resolves workspace: deps and includes them in report.dependencies', async () => {
+    // Set up a monorepo with a pnpm workspace.
+    await writeFile(join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+    const appDir = join(dir, 'packages', 'app');
+    await mkdir(appDir, { recursive: true });
+    await writeFile(
+      join(appDir, 'package.json'),
+      JSON.stringify({
+        name: 'app',
+        dependencies: { '@myorg/utils': 'workspace:*' },
+      }),
+    );
+    // Simulate the workspace symlink in node_modules.
+    await mkdir(join(appDir, 'node_modules', '@myorg', 'utils'), { recursive: true });
+    await writeFile(
+      join(appDir, 'node_modules', '@myorg', 'utils', 'package.json'),
+      JSON.stringify({ name: '@myorg/utils', version: '1.2.0' }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: (() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              name: '@myorg/utils',
+              versions: { '1.2.0': {}, '1.3.0': {} },
+              time: {
+                '1.2.0': '2024-01-01T00:00:00Z',
+                '1.3.0': '2025-01-01T00:00:00Z',
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        )) as unknown as typeof fetch,
+    });
+
+    const report = await runAnalysis(
+      baseAnalyzeOptions(join(appDir, 'package.json')),
+      { registry, cache },
+    );
+
+    const wsDep = report.dependencies.find((d) => d.name === '@myorg/utils');
+    assert.ok(wsDep, 'workspace dep should appear in dependencies');
+    assert.equal(wsDep.current.version, '1.2.0');
+    assert.equal(wsDep.type, 'dependencies');
+  });
+
+  it('skips private workspace deps with workspace-private reason', async () => {
+    await writeFile(join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+    const appDir = join(dir, 'packages', 'app');
+    await mkdir(appDir, { recursive: true });
+    await writeFile(
+      join(appDir, 'package.json'),
+      JSON.stringify({
+        name: 'app',
+        dependencies: { 'internal-lib': 'workspace:^' },
+      }),
+    );
+    await mkdir(join(appDir, 'node_modules', 'internal-lib'), { recursive: true });
+    await writeFile(
+      join(appDir, 'node_modules', 'internal-lib', 'package.json'),
+      JSON.stringify({ name: 'internal-lib', version: '0.1.0', private: true }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: (() =>
+        Promise.resolve(new Response('{}', { status: 404 }))) as unknown as typeof fetch,
+    });
+
+    const report = await runAnalysis(
+      baseAnalyzeOptions(join(appDir, 'package.json')),
+      { registry, cache },
+    );
+
+    assert.equal(report.dependencies.find((d) => d.name === 'internal-lib'), undefined);
+    const skipped = report.skipped.find((s) => s.name === 'internal-lib');
+    assert.ok(skipped, 'private workspace dep should appear in skipped');
+    assert.equal(skipped.reason, 'workspace-private');
+  });
+
+  it('resolves version-pinned workspace:^1.0.0 through the full pipeline', async () => {
+    await writeFile(join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+    const appDir = join(dir, 'packages', 'app');
+    await mkdir(appDir, { recursive: true });
+    await writeFile(
+      join(appDir, 'package.json'),
+      JSON.stringify({
+        name: 'app',
+        dependencies: { 'shared-lib': 'workspace:^1.0.0' },
+      }),
+    );
+    await mkdir(join(appDir, 'node_modules', 'shared-lib'), { recursive: true });
+    await writeFile(
+      join(appDir, 'node_modules', 'shared-lib', 'package.json'),
+      JSON.stringify({ name: 'shared-lib', version: '1.4.0' }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: (() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              name: 'shared-lib',
+              versions: { '1.4.0': {}, '1.5.0': {} },
+              time: {
+                '1.4.0': '2024-01-01T00:00:00Z',
+                '1.5.0': '2025-01-01T00:00:00Z',
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        )) as unknown as typeof fetch,
+    });
+
+    const report = await runAnalysis(
+      baseAnalyzeOptions(join(appDir, 'package.json')),
+      { registry, cache },
+    );
+
+    const wsDep = report.dependencies.find((d) => d.name === 'shared-lib');
+    assert.ok(wsDep, 'version-pinned workspace dep should appear in dependencies');
+    assert.equal(wsDep.current.version, '1.4.0');
+    assert.equal(wsDep.updateType, 'minor');
+  });
+
+  it('skips private dep with version-pinned workspace:~2.0.0 spec', async () => {
+    await writeFile(join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+    const appDir = join(dir, 'packages', 'app');
+    await mkdir(appDir, { recursive: true });
+    await writeFile(
+      join(appDir, 'package.json'),
+      JSON.stringify({
+        name: 'app',
+        dependencies: { 'private-pkg': 'workspace:~2.0.0' },
+      }),
+    );
+    await mkdir(join(appDir, 'node_modules', 'private-pkg'), { recursive: true });
+    await writeFile(
+      join(appDir, 'node_modules', 'private-pkg', 'package.json'),
+      JSON.stringify({ name: 'private-pkg', version: '2.0.0', private: true }),
+    );
+
+    const cache = new Cache({ dir: join(dir, 'cache'), enabled: false });
+    const registry = new RegistryClient({
+      baseUrl: 'http://example.invalid',
+      cache,
+      fetchImpl: (() =>
+        Promise.resolve(new Response('{}', { status: 404 }))) as unknown as typeof fetch,
+    });
+
+    const report = await runAnalysis(
+      baseAnalyzeOptions(join(appDir, 'package.json')),
+      { registry, cache },
+    );
+
+    assert.equal(report.dependencies.find((d) => d.name === 'private-pkg'), undefined);
+    const skipped = report.skipped.find((s) => s.name === 'private-pkg');
+    assert.ok(skipped, 'private workspace dep should appear in skipped');
+    assert.equal(skipped.reason, 'workspace-private');
+  });
+});

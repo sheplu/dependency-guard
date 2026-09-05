@@ -494,6 +494,14 @@ function skippedSummary(report: AnalysisReport): string {
     );
   }
 
+  const wsPrivate = report.skipped.filter((s) => s.reason === 'workspace-private');
+  if (wsPrivate.length > 0) {
+    const names = wsPrivate.map((s) => s.name).join(', ');
+    lines.push(
+      `Skipped ${wsPrivate.length} private workspace package(s): ${names}`,
+    );
+  }
+
   const descriptors = report.skipped.filter((s) => s.reason === 'override-descriptor');
   if (descriptors.length > 0) {
     const names = descriptors.map((s) => s.name).join(', ');

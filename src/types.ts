@@ -15,6 +15,7 @@ export type SkippedReason =
   | 'override-reference'
   | 'override-removal'
   | 'override-descriptor'
+  | 'workspace-private'
   | 'registry-not-found'
   | 'registry-unauthorized';
 

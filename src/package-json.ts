@@ -76,6 +76,11 @@ export interface CollectedDependencies {
     type: DependencyType;
     reason: OverrideSkipReason;
   }>;
+  workspaceSpecs: Array<{
+    name: string;
+    type: DependencyType;
+    spec: string;
+  }>;
 }
 
 const DESCRIPTOR_RE = /^(npm:|file:|portal:|link:|workspace:|git\+|https?:)/;
@@ -93,6 +98,12 @@ function isAuditableKey(k: string): boolean {
 
 export function isCatalogSpec(v: string): boolean {
   return v.startsWith('catalog:');
+}
+
+const WORKSPACE_SPEC_RE = /^workspace:([*^~]?$|[~^]?\d)/;
+
+export function isWorkspaceSpec(v: string): boolean {
+  return WORKSPACE_SPEC_RE.test(v);
 }
 
 export async function readPackageJson(path: string): Promise<PackageJson> {
@@ -231,12 +242,17 @@ export async function collectDependencies(
 
   const entries: DependencyEntry[] = [];
   const skipped: CollectedDependencies['skipped'] = [];
+  const workspaceSpecs: CollectedDependencies['workspaceSpecs'] = [];
 
   for (const [type, deps] of buckets) {
     if (!deps) continue;
     for (const [name, spec] of Object.entries(deps)) {
       if (isCatalogSpec(spec)) {
         skipped.push({ name, type, reason: 'catalog' });
+        continue;
+      }
+      if (isWorkspaceSpec(spec)) {
+        workspaceSpecs.push({ name, type, spec });
         continue;
       }
       if (!isAuditableSpec(spec)) {
@@ -309,7 +325,7 @@ export async function collectDependencies(
     const typeDiff = TYPE_ORDER[a.type] - TYPE_ORDER[b.type];
     return typeDiff !== 0 ? typeDiff : a.name.localeCompare(b.name);
   });
-  return { entries, skipped };
+  return { entries, skipped, workspaceSpecs };
 }
 
 export const TYPE_ORDER: Record<DependencyType, number> = {

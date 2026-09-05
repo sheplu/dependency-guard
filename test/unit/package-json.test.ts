@@ -10,6 +10,7 @@ import {
   collectPnpmOverrides,
   collectResolutions,
   isCatalogSpec,
+  isWorkspaceSpec,
 } from '../../src/package-json.ts';
 
 describe('collectDependencies', () => {
@@ -209,7 +210,7 @@ describe('collectDependencies', () => {
           },
         }),
       );
-      const { entries, skipped } = await collectDependencies(
+      const { entries, skipped, workspaceSpecs } = await collectDependencies(
         join(specDir, 'package.json'),
         { prod: false, dev: false, peer: false, optional: false, overrides: false, resolutions: false, pnpmOverrides: false },
       );
@@ -221,9 +222,92 @@ describe('collectDependencies', () => {
           { name: 'gitdep', type: 'dependencies', reason: 'override-descriptor' },
           { name: 'httpdep', type: 'dependencies', reason: 'override-descriptor' },
           { name: 'linked', type: 'dependencies', reason: 'override-descriptor' },
-          { name: 'local-pkg', type: 'dependencies', reason: 'override-descriptor' },
           { name: 'portaled', type: 'dependencies', reason: 'override-descriptor' },
           { name: 'tarballed', type: 'dependencies', reason: 'override-descriptor' },
+        ],
+      );
+      assert.deepEqual(workspaceSpecs, [
+        { name: 'local-pkg', type: 'dependencies', spec: 'workspace:*' },
+      ]);
+    } finally {
+      await rm(specDir, { recursive: true, force: true });
+    }
+  });
+
+  it('routes unresolvable workspace: forms to override-descriptor skip', async () => {
+    const specDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-exotic-'));
+    try {
+      await writeFile(
+        join(specDir, 'package.json'),
+        JSON.stringify({
+          name: 'fixture-exotic',
+          dependencies: {
+            'self-ref': 'workspace:.',
+            'versioned': 'workspace:1.0.0',
+            'pinned-caret': 'workspace:^1.0.0',
+            'bare': 'workspace:',
+            'nonsense': 'workspace:**',
+          },
+        }),
+      );
+      const { entries, skipped, workspaceSpecs } = await collectDependencies(
+        join(specDir, 'package.json'),
+        { prod: false, dev: false, peer: false, optional: false, overrides: false, resolutions: false, pnpmOverrides: false },
+      );
+      assert.deepEqual(entries, []);
+      // Only self-ref and nonsense remain skipped; the rest are now resolvable.
+      assert.deepEqual(
+        skipped.toSorted((a, b) => a.name.localeCompare(b.name)),
+        [
+          { name: 'nonsense', type: 'dependencies', reason: 'override-descriptor' },
+          { name: 'self-ref', type: 'dependencies', reason: 'override-descriptor' },
+        ],
+      );
+      assert.deepEqual(
+        workspaceSpecs.toSorted((a, b) => a.name.localeCompare(b.name)),
+        [
+          { name: 'bare', type: 'dependencies', spec: 'workspace:' },
+          { name: 'pinned-caret', type: 'dependencies', spec: 'workspace:^1.0.0' },
+          { name: 'versioned', type: 'dependencies', spec: 'workspace:1.0.0' },
+        ],
+      );
+    } finally {
+      await rm(specDir, { recursive: true, force: true });
+    }
+  });
+
+  it('routes all resolvable workspace: forms to workspaceSpecs', async () => {
+    const specDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-mods-'));
+    try {
+      await writeFile(
+        join(specDir, 'package.json'),
+        JSON.stringify({
+          name: 'fixture-ws-mods',
+          dependencies: {
+            'pkg-star': 'workspace:*',
+            'pkg-caret': 'workspace:^',
+            'pkg-tilde': 'workspace:~',
+            'pkg-bare': 'workspace:',
+            'pkg-pinned-caret': 'workspace:^1.0.0',
+            'pkg-pinned-tilde': 'workspace:~2.0.0',
+            'pkg-exact': 'workspace:1.0.0',
+          },
+        }),
+      );
+      const { workspaceSpecs } = await collectDependencies(
+        join(specDir, 'package.json'),
+        { prod: false, dev: false, peer: false, optional: false, overrides: false, resolutions: false, pnpmOverrides: false },
+      );
+      assert.deepEqual(
+        workspaceSpecs.toSorted((a, b) => a.name.localeCompare(b.name)),
+        [
+          { name: 'pkg-bare', type: 'dependencies', spec: 'workspace:' },
+          { name: 'pkg-caret', type: 'dependencies', spec: 'workspace:^' },
+          { name: 'pkg-exact', type: 'dependencies', spec: 'workspace:1.0.0' },
+          { name: 'pkg-pinned-caret', type: 'dependencies', spec: 'workspace:^1.0.0' },
+          { name: 'pkg-pinned-tilde', type: 'dependencies', spec: 'workspace:~2.0.0' },
+          { name: 'pkg-star', type: 'dependencies', spec: 'workspace:*' },
+          { name: 'pkg-tilde', type: 'dependencies', spec: 'workspace:~' },
         ],
       );
     } finally {
@@ -580,5 +664,40 @@ describe('isCatalogSpec', () => {
     assert.equal(isCatalogSpec('^1.0.0'), false);
     assert.equal(isCatalogSpec('1.0.0'), false);
     assert.equal(isCatalogSpec('workspace:*'), false);
+  });
+});
+
+describe('isWorkspaceSpec', () => {
+  it('returns true for workspace:*', () => {
+    assert.equal(isWorkspaceSpec('workspace:*'), true);
+  });
+
+  it('returns true for workspace:^', () => {
+    assert.equal(isWorkspaceSpec('workspace:^'), true);
+  });
+
+  it('returns true for workspace:~', () => {
+    assert.equal(isWorkspaceSpec('workspace:~'), true);
+  });
+
+  it('returns true for workspace: (bare, equivalent to *)', () => {
+    assert.equal(isWorkspaceSpec('workspace:'), true);
+  });
+
+  it('returns true for version-pinned workspace specs', () => {
+    assert.equal(isWorkspaceSpec('workspace:1.0.0'), true);
+    assert.equal(isWorkspaceSpec('workspace:^1.0.0'), true);
+    assert.equal(isWorkspaceSpec('workspace:~2.0.0'), true);
+  });
+
+  it('returns false for self-reference and invalid forms', () => {
+    assert.equal(isWorkspaceSpec('workspace:.'), false);
+    assert.equal(isWorkspaceSpec('workspace:**'), false);
+  });
+
+  it('returns false for non-workspace specs', () => {
+    assert.equal(isWorkspaceSpec('^1.0.0'), false);
+    assert.equal(isWorkspaceSpec('catalog:'), false);
+    assert.equal(isWorkspaceSpec('file:./local'), false);
   });
 });
