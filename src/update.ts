@@ -31,6 +31,9 @@ export function planUpdates(
     if (target.version === dep.current.version) continue;
 
     const oldSpec = originalSpecs.get(dep.name) ?? dep.current.version;
+    // Never rewrite workspace: specs — the workspace protocol would be lost.
+    // Writeback for workspace deps is a separate concern (see issue #44).
+    if (oldSpec.startsWith('workspace:')) continue;
     out.push({
       name: dep.name,
       type: dep.type,

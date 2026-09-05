@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -4209,6 +4209,480 @@ packages:
       } finally {
         await proj.cleanup();
         await reg.close();
+      }
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // workspace: spec resolution
+  // -----------------------------------------------------------------------
+
+  describe('workspace: spec resolution', () => {
+    it('resolves workspace:* deps and audits them against the registry', async () => {
+      const wsDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-int-'));
+      try {
+        // Workspace root with pnpm-workspace.yaml.
+        await writeFile(join(wsDir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+
+        // The consuming app package — uses lodash as a workspace dep (known to mock registry).
+        const appDir = join(wsDir, 'packages', 'app');
+        await mkdir(appDir, { recursive: true });
+        await writeFile(
+          join(appDir, 'package.json'),
+          JSON.stringify({
+            name: 'app',
+            version: '1.0.0',
+            dependencies: {
+              express: '^4.18.0',
+              lodash: 'workspace:*',
+            },
+          }),
+        );
+
+        // Installed deps (simulated node_modules).
+        await mkdir(join(appDir, 'node_modules', 'express'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'express', 'package.json'),
+          JSON.stringify({ name: 'express', version: '4.18.2' }),
+        );
+        await mkdir(join(appDir, 'node_modules', 'lodash'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'lodash', 'package.json'),
+          JSON.stringify({ name: 'lodash', version: '4.17.21' }),
+        );
+
+        const result = await runCli(
+          ['--path', join(appDir, 'package.json'), '--format', 'json', '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+
+        // The workspace dep should appear in dependencies, not skipped.
+        const wsDep = report.dependencies.find(
+          (d: { name: string }) => d.name === 'lodash',
+        );
+        assert.ok(wsDep, 'lodash workspace dep should appear in dependencies');
+        assert.equal(wsDep.current.version, '4.17.21');
+        assert.equal(wsDep.type, 'dependencies');
+
+        // It should not be in the skipped list.
+        const wsSkipped = report.skipped.find(
+          (s: { name: string }) => s.name === 'lodash',
+        );
+        assert.equal(wsSkipped, undefined, 'lodash should NOT be in skipped');
+      } finally {
+        await rm(wsDir, { recursive: true, force: true });
+      }
+    });
+
+    it('resolves version-pinned workspace:^1.0.0 specs', async () => {
+      const wsDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-pinned-'));
+      try {
+        await writeFile(join(wsDir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+        const appDir = join(wsDir, 'packages', 'app');
+        await mkdir(appDir, { recursive: true });
+        await writeFile(
+          join(appDir, 'package.json'),
+          JSON.stringify({
+            name: 'app',
+            version: '1.0.0',
+            dependencies: { typescript: 'workspace:^5.0.0' },
+          }),
+        );
+
+        await mkdir(join(appDir, 'node_modules', 'typescript'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'typescript', 'package.json'),
+          JSON.stringify({ name: 'typescript', version: '5.2.2' }),
+        );
+
+        const result = await runCli(
+          ['--path', join(appDir, 'package.json'), '--format', 'json', '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+
+        const wsDep = report.dependencies.find(
+          (d: { name: string }) => d.name === 'typescript',
+        );
+        assert.ok(wsDep, 'version-pinned workspace dep should appear in dependencies');
+        assert.equal(wsDep.current.version, '5.2.2');
+
+        const wsSkipped = report.skipped.find(
+          (s: { name: string }) => s.name === 'typescript',
+        );
+        assert.equal(wsSkipped, undefined, 'should NOT be in skipped');
+      } finally {
+        await rm(wsDir, { recursive: true, force: true });
+      }
+    });
+
+    it('resolves bare workspace: spec (equivalent to workspace:*)', async () => {
+      const wsDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-bare-'));
+      try {
+        await writeFile(join(wsDir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+        const appDir = join(wsDir, 'packages', 'app');
+        await mkdir(appDir, { recursive: true });
+        await writeFile(
+          join(appDir, 'package.json'),
+          JSON.stringify({
+            name: 'app',
+            version: '1.0.0',
+            dependencies: { lodash: 'workspace:' },
+          }),
+        );
+
+        await mkdir(join(appDir, 'node_modules', 'lodash'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'lodash', 'package.json'),
+          JSON.stringify({ name: 'lodash', version: '4.17.21' }),
+        );
+
+        const result = await runCli(
+          ['--path', join(appDir, 'package.json'), '--format', 'json', '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+
+        const wsDep = report.dependencies.find(
+          (d: { name: string }) => d.name === 'lodash',
+        );
+        assert.ok(wsDep, 'bare workspace: dep should appear in dependencies');
+        assert.equal(wsDep.current.version, '4.17.21');
+      } finally {
+        await rm(wsDir, { recursive: true, force: true });
+      }
+    });
+
+    it('resolves exact-pinned workspace:5.2.2 spec', async () => {
+      const wsDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-exact-'));
+      try {
+        await writeFile(join(wsDir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+        const appDir = join(wsDir, 'packages', 'app');
+        await mkdir(appDir, { recursive: true });
+        await writeFile(
+          join(appDir, 'package.json'),
+          JSON.stringify({
+            name: 'app',
+            version: '1.0.0',
+            dependencies: { typescript: 'workspace:5.2.2' },
+          }),
+        );
+
+        await mkdir(join(appDir, 'node_modules', 'typescript'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'typescript', 'package.json'),
+          JSON.stringify({ name: 'typescript', version: '5.2.2' }),
+        );
+
+        const result = await runCli(
+          ['--path', join(appDir, 'package.json'), '--format', 'json', '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+
+        const wsDep = report.dependencies.find(
+          (d: { name: string }) => d.name === 'typescript',
+        );
+        assert.ok(wsDep, 'exact-pinned workspace dep should appear in dependencies');
+        assert.equal(wsDep.current.version, '5.2.2');
+      } finally {
+        await rm(wsDir, { recursive: true, force: true });
+      }
+    });
+
+    it('workspace:. self-reference stays skipped as override-descriptor', async () => {
+      const wsDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-self-'));
+      try {
+        await writeFile(join(wsDir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+        const appDir = join(wsDir, 'packages', 'app');
+        await mkdir(appDir, { recursive: true });
+        await writeFile(
+          join(appDir, 'package.json'),
+          JSON.stringify({
+            name: 'app',
+            version: '1.0.0',
+            dependencies: {
+              lodash: '4.17.21',
+              app: 'workspace:.',
+            },
+          }),
+        );
+
+        await mkdir(join(appDir, 'node_modules', 'lodash'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'lodash', 'package.json'),
+          JSON.stringify({ name: 'lodash', version: '4.17.21' }),
+        );
+
+        const result = await runCli(
+          ['--path', join(appDir, 'package.json'), '--format', 'json', '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+
+        // workspace:. should be in skipped, not in dependencies.
+        const selfSkipped = report.skipped.find(
+          (s: { name: string }) => s.name === 'app',
+        );
+        assert.ok(selfSkipped, 'workspace:. should be in skipped');
+        assert.equal(selfSkipped.reason, 'override-descriptor');
+      } finally {
+        await rm(wsDir, { recursive: true, force: true });
+      }
+    });
+
+    it('skips private workspace deps with workspace-private reason', async () => {
+      const wsDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-priv-'));
+      try {
+        await writeFile(join(wsDir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+        const appDir = join(wsDir, 'packages', 'app');
+        await mkdir(appDir, { recursive: true });
+        await writeFile(
+          join(appDir, 'package.json'),
+          JSON.stringify({
+            name: 'app',
+            version: '1.0.0',
+            dependencies: { 'internal-lib': 'workspace:^' },
+          }),
+        );
+
+        await mkdir(join(appDir, 'node_modules', 'internal-lib'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'internal-lib', 'package.json'),
+          JSON.stringify({ name: 'internal-lib', version: '0.1.0', private: true }),
+        );
+
+        const jsonResult = await runCli(
+          ['--path', join(appDir, 'package.json'), '--format', 'json', '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(jsonResult.exitCode, 0, jsonResult.stderr);
+        const report = JSON.parse(jsonResult.stdout);
+
+        const skipped = report.skipped.find(
+          (s: { name: string }) => s.name === 'internal-lib',
+        );
+        assert.ok(skipped, 'internal-lib should appear in skipped');
+        assert.equal(skipped.reason, 'workspace-private');
+
+        // Verify the table format displays the workspace-private message.
+        const tableResult = await runCli(
+          ['--path', join(appDir, 'package.json'), '--format', 'table', '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(tableResult.exitCode, 0, tableResult.stderr);
+        assert.match(tableResult.stdout, /private workspace package\(s\).*internal-lib/);
+      } finally {
+        await rm(wsDir, { recursive: true, force: true });
+      }
+    });
+
+    it('resolves workspace: deps with npm workspaces (package.json workspaces array)', async () => {
+      const wsDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-npm-'));
+      try {
+        // npm-style workspace root (package.json with workspaces, no pnpm-workspace.yaml).
+        await writeFile(
+          join(wsDir, 'package.json'),
+          JSON.stringify({ name: 'root', workspaces: ['packages/*'] }),
+        );
+
+        const appDir = join(wsDir, 'packages', 'app');
+        await mkdir(appDir, { recursive: true });
+        await writeFile(
+          join(appDir, 'package.json'),
+          JSON.stringify({
+            name: 'app',
+            version: '1.0.0',
+            dependencies: { typescript: 'workspace:~' },
+          }),
+        );
+
+        // Use typescript which exists in the mock registry.
+        await mkdir(join(appDir, 'node_modules', 'typescript'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'typescript', 'package.json'),
+          JSON.stringify({ name: 'typescript', version: '5.2.2' }),
+        );
+
+        const result = await runCli(
+          ['--path', join(appDir, 'package.json'), '--format', 'json', '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+
+        const wsDep = report.dependencies.find(
+          (d: { name: string }) => d.name === 'typescript',
+        );
+        assert.ok(wsDep, 'typescript workspace dep should appear in dependencies');
+        assert.equal(wsDep.current.version, '5.2.2');
+      } finally {
+        await rm(wsDir, { recursive: true, force: true });
+      }
+    });
+
+    it('--fail-on major exits 2 when a workspace dep has a major upgrade', async () => {
+      const wsDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-fail-'));
+      try {
+        await writeFile(join(wsDir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+        const appDir = join(wsDir, 'packages', 'app');
+        await mkdir(appDir, { recursive: true });
+        await writeFile(
+          join(appDir, 'package.json'),
+          JSON.stringify({
+            name: 'app',
+            version: '1.0.0',
+            dependencies: { express: 'workspace:*' },
+          }),
+        );
+
+        // express 4.18.2 → 5.0.1 is a major update in the mock registry.
+        await mkdir(join(appDir, 'node_modules', 'express'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'express', 'package.json'),
+          JSON.stringify({ name: 'express', version: '4.18.2' }),
+        );
+
+        const result = await runCli(
+          ['--path', join(appDir, 'package.json'), '--fail-on', 'major', '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 2, 'should exit 2 for major upgrade');
+      } finally {
+        await rm(wsDir, { recursive: true, force: true });
+      }
+    });
+
+    it('--ignore-scope filters resolved workspace deps', async () => {
+      const wsDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-scope-'));
+      try {
+        await writeFile(join(wsDir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+        const appDir = join(wsDir, 'packages', 'app');
+        await mkdir(appDir, { recursive: true });
+        await writeFile(
+          join(appDir, 'package.json'),
+          JSON.stringify({
+            name: 'app',
+            version: '1.0.0',
+            dependencies: {
+              express: 'workspace:*',
+              lodash: '4.17.21',
+            },
+          }),
+        );
+
+        await mkdir(join(appDir, 'node_modules', 'express'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'express', 'package.json'),
+          JSON.stringify({ name: 'express', version: '4.18.2' }),
+        );
+        await mkdir(join(appDir, 'node_modules', 'lodash'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'lodash', 'package.json'),
+          JSON.stringify({ name: 'lodash', version: '4.17.21' }),
+        );
+
+        const result = await runCli(
+          [
+            '--path', join(appDir, 'package.json'),
+            '--format', 'json',
+            '--no-cache',
+            '--only', 'lodash',
+          ],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        const report = JSON.parse(result.stdout);
+
+        // Only lodash should appear — express is filtered by --only.
+        assert.equal(report.dependencies.length, 1);
+        assert.equal(report.dependencies[0].name, 'lodash');
+      } finally {
+        await rm(wsDir, { recursive: true, force: true });
+      }
+    });
+
+    it('--update does not overwrite workspace: specs in package.json', async () => {
+      const wsDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-update-'));
+      try {
+        await writeFile(join(wsDir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+        const appDir = join(wsDir, 'packages', 'app');
+        await mkdir(appDir, { recursive: true });
+        const pkgJsonPath = join(appDir, 'package.json');
+        await writeFile(
+          pkgJsonPath,
+          JSON.stringify({
+            name: 'app',
+            version: '1.0.0',
+            dependencies: {
+              express: 'workspace:*',
+              lodash: '4.17.21',
+            },
+          }, null, 2),
+        );
+
+        // express 4.18.2 has a minor update (4.21.0) in the mock registry.
+        await mkdir(join(appDir, 'node_modules', 'express'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'express', 'package.json'),
+          JSON.stringify({ name: 'express', version: '4.18.2' }),
+        );
+        await mkdir(join(appDir, 'node_modules', 'lodash'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'lodash', 'package.json'),
+          JSON.stringify({ name: 'lodash', version: '4.17.21' }),
+        );
+
+        const result = await runCli(
+          ['--path', pkgJsonPath, '--update', 'minor', '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+
+        // Verify workspace: spec is preserved.
+        const after = JSON.parse(await readFile(pkgJsonPath, 'utf8'));
+        assert.equal(after.dependencies.express, 'workspace:*',
+          'workspace:* spec must NOT be overwritten by --update');
+      } finally {
+        await rm(wsDir, { recursive: true, force: true });
+      }
+    });
+
+    it('renders workspace-private in markdown output', async () => {
+      const wsDir = await mkdtemp(join(tmpdir(), 'dep-guard-ws-md-'));
+      try {
+        await writeFile(join(wsDir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+        const appDir = join(wsDir, 'packages', 'app');
+        await mkdir(appDir, { recursive: true });
+        await writeFile(
+          join(appDir, 'package.json'),
+          JSON.stringify({
+            name: 'app',
+            version: '1.0.0',
+            dependencies: { 'internal-lib': 'workspace:^' },
+          }),
+        );
+
+        await mkdir(join(appDir, 'node_modules', 'internal-lib'), { recursive: true });
+        await writeFile(
+          join(appDir, 'node_modules', 'internal-lib', 'package.json'),
+          JSON.stringify({ name: 'internal-lib', version: '0.1.0', private: true }),
+        );
+
+        const result = await runCli(
+          ['--path', join(appDir, 'package.json'), '--format', 'markdown', '--no-cache'],
+          { DEPENDENCY_GUARD_REGISTRY_URL: registry.url },
+        );
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(result.stdout, /private workspace package\(s\).*internal-lib/);
+      } finally {
+        await rm(wsDir, { recursive: true, force: true });
       }
     });
   });

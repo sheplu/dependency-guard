@@ -168,6 +168,44 @@ describe('planUpdates', () => {
     assert.deepEqual(updates, []);
   });
 
+  it('skips workspace: specs to avoid corrupting the workspace protocol', () => {
+    const report = makeReport([
+      dep({
+        name: 'ws-dep',
+        current: { version: '1.0.0', publishedAt: null },
+        latestMinor: { version: '1.5.0', publishedAt: null },
+        updateType: 'minor',
+      }),
+    ]);
+    const specs = new Map([['ws-dep', 'workspace:*']]);
+    const updates = planUpdates(report, 'minor', specs);
+    assert.deepEqual(updates, []);
+  });
+
+  it('skips all workspace: spec variants including version-pinned forms', () => {
+    const names = ['bare', 'caret', 'tilde', 'pinned-caret', 'pinned-tilde', 'exact'];
+    const report = makeReport(
+      names.map((n) =>
+        dep({
+          name: n,
+          current: { version: '1.0.0', publishedAt: null },
+          latestMinor: { version: '1.5.0', publishedAt: null },
+          updateType: 'minor',
+        }),
+      ),
+    );
+    const specs = new Map<string, string>([
+      ['bare', 'workspace:'],
+      ['caret', 'workspace:^'],
+      ['tilde', 'workspace:~'],
+      ['pinned-caret', 'workspace:^1.0.0'],
+      ['pinned-tilde', 'workspace:~1.0.0'],
+      ['exact', 'workspace:1.0.0'],
+    ]);
+    const updates = planUpdates(report, 'all', specs);
+    assert.deepEqual(updates, []);
+  });
+
   it('falls back to current.version when the dep is not in the original-spec map', () => {
     const report = makeReport([
       dep({

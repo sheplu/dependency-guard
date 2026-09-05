@@ -6,6 +6,7 @@ import { expandWithLockfile } from './lockfile.ts';
 import { TYPE_ORDER, collectDependencies, type DependencyEntry } from './package-json.ts';
 import { RegistryClient, RegistryHttpError } from './registry.ts';
 import { isExcluded, resolveReleaseAgeConfig, type ReleaseAgeConfig } from './release-age.ts';
+import { resolveWorkspaceSpecs } from './workspace.ts';
 import type {
   AnalysisReport,
   CliOptions,
@@ -56,6 +57,12 @@ export async function runAnalysis(
     type: s.type,
     reason: s.reason,
   }));
+
+  // Resolve workspace: specs to local package versions.
+  const { entries: wsEntries, skipped: wsSkipped } =
+    await resolveWorkspaceSpecs(collected.workspaceSpecs, dirname(options.path));
+  skipped.push(...wsSkipped);
+
   const onlySet = options.onlyNames.length > 0 ? new Set(options.onlyNames) : null;
 
   // Collect catalog entries from pnpm-workspace.yaml when --catalog is active.
@@ -67,8 +74,8 @@ export async function runAnalysis(
     }
   }
 
-  // Merge regular entries with catalog entries, preserving TYPE_ORDER sort.
-  const allDirect = [...collected.entries, ...catalogDirect].toSorted((a, b) => {
+  // Merge regular, workspace, and catalog entries, preserving TYPE_ORDER sort.
+  const allDirect = [...collected.entries, ...wsEntries, ...catalogDirect].toSorted((a, b) => {
     const typeDiff = TYPE_ORDER[a.type] - TYPE_ORDER[b.type];
     return typeDiff !== 0 ? typeDiff : a.name.localeCompare(b.name);
   });
